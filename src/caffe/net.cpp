@@ -4,7 +4,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-
+#include <time.h>
 #include "hdf5.h"
 
 #include "caffe/common.hpp"
@@ -546,7 +546,6 @@ Dtype Net<Dtype>::ForwardFromTo(int start, int end) {
   CHECK_LT(end, layers_.size());
   Dtype loss = 0;
   for (int i = start; i <= end; ++i) {
-    // LOG(ERROR) << "Forwarding " << layer_names_[i];
     Dtype layer_loss = layers_[i]->Forward(bottom_vecs_[i], top_vecs_[i]);
     loss += layer_loss;
     if (debug_info_) { ForwardDebugInfo(i); }

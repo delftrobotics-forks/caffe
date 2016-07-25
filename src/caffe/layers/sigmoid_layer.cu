@@ -1,5 +1,6 @@
 #include <cmath>
 #include <vector>
+#include <iostream>
 
 #include "caffe/layers/sigmoid_layer.hpp"
 
