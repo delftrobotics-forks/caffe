@@ -389,6 +389,7 @@ message LayerParameter {
   optional PoolingParameter pooling_param = 121;
   optional PowerParameter power_param = 122;
   optional PReLUParameter prelu_param = 131;
+  optional ProposalParameter proposal_param = 8266713;
   optional PythonParameter python_param = 130;
   optional RecurrentParameter recurrent_param = 146;
   optional ReductionParameter reduction_param = 136;
@@ -920,6 +921,14 @@ message PowerParameter {
   optional float shift = 3 [default = 0.0];
 }
 
+message ProposalParameter {
+  optional uint32 feat_stride = 1 [default = 16];
+  optional uint32 clip_base = 2 [default = 256];
+  optional uint32 gradient_scale = 5 [default = 1];
+  optional bool use_clip = 3 [default = false];
+  repeated uint32 scales = 4 [packed = true];
+}
+
 message PythonParameter {
   optional string module = 1;
   optional string layer = 2;
@@ -1285,6 +1294,7 @@ message V1LayerParameter {
     MVN = 34;
     POOLING = 17;
     POWER = 26;
+    PROPOSAL = 40;
     RELU = 18;
     SIGMOID = 19;
     SIGMOID_CROSS_ENTROPY_LOSS = 27;
