@@ -1,0 +1,11 @@
+cmake .. \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DBLAS="Open" \
+	-DCMAKE_INSTALL_PREFIX=/usr \
+	-Dpython_version=3.5 \
+	-DBoost_PYTHON_LIBRARY_RELEASE=/usr/lib/libboost_python3.so \
+	-DCUDA_NVCC_FLAGS="-Xcompiler -std=c++98" \
+	-DCUDA_HOST_COMPILER=/usr/bin/g++-5 \
+	-DCMAKE_CXX_FLAGS="-std=c++11"
+make -j8
+
