@@ -1,8 +1,5 @@
 #pragma once
 
-#include <initializer_list>
-#include <iomanip>
-
 #include "caffe/blob.hpp"
 #include "caffe/common.hpp"
 #include "caffe/layer.hpp"
@@ -10,15 +7,27 @@
 
 #include "caffe/layers/loss_layer.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+#include <initializer_list>
+#include <iomanip>
+
 namespace caffe {
 
 namespace proposal_layer {
 
   template <typename T>
-    void printVector(std::vector<T> const & vector) {
-      for (auto const & element : vector) { std::cout << element << " "; }
-      std::cout << std::endl;
-    }
+  void print(std::vector<T> const & vector) {
+    for (auto const & element : vector) { std::cout << element << " "; }
+    std::cout << std::endl;
+  }
+
+  template <typename T>
+  std::vector<T> select(std::vector<T> const & vector, std::vector<size_t> const & indices) {
+    std::vector<T> result;
+    std::transform(indices.begin(), indices.end(), std::back_inserter(result), [vector](size_t i) { return vector[i]; });
+    return result;
+  }
 
   struct Point {
     float x;
@@ -38,10 +47,22 @@ namespace proposal_layer {
     float width;
     float height;
 
-    Rectangle(float _x, float _y, float _width, float _height):
-      center(_x, _y),  width(_width), height(_height) {}
-    Rectangle(Point _center, float _width, float _height):
-      center(_center), width(_width), height(_height) {}
+    Rectangle(float _x, float _y, float _width, float _height): center(_x, _y),  width(_width), height(_height) {}
+    Rectangle(Point _center, float _width, float _height):      center(_center), width(_width), height(_height) {}
+
+    Rectangle intersect(Rectangle const & rect) const {
+      Point top_left     = this->topLeft();
+      Point bottom_right = this->bottomRight();
+
+      float x1 = std::max(top_left.x,     rect.topLeft().x);
+      float y1 = std::max(top_left.y,     rect.topLeft().y);
+      float x2 = std::min(bottom_right.x, rect.bottomRight().x);
+      float y2 = std::min(bottom_right.y, rect.bottomRight().y);
+
+      if (x1 > x2 || y1 > y2) { return Rectangle(0, 0, 0, 0); }
+
+      return Rectangle::fromCoordinates(x1, y1, x2, y2);
+    }
 
     friend std::ostream & operator<<(std::ostream & stream, Rectangle const & anchor) {
       //stream << anchor.center << " [ w: " << std::setw(6) << anchor.width  <<
@@ -86,19 +107,29 @@ class ProposalLayer : public Layer<Dtype> {
 
   virtual void LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
                           std::vector<Blob<Dtype>*> const & top);
-  virtual void Reshape(std::vector<Blob<Dtype>*>    const & bottom,
-                       std::vector<Blob<Dtype>*>    const & top);
+
+  virtual void Reshape(std::vector<Blob<Dtype>*> const & bottom,
+                       std::vector<Blob<Dtype>*> const & top);
 
   virtual inline const char * type() const { return "ProposalLayer"; }
 
   protected:
   virtual void Forward_cpu(std::vector<Blob<Dtype>*>  const & bottom,
                            std::vector<Blob<Dtype>*>  const & top);
+
   virtual void Backward_cpu(std::vector<Blob<Dtype>*> const & top,
                             std::vector<bool>         const & propagate_down,
                             std::vector<Blob<Dtype>*> const & bottom);
 
   private:
+  template <typename T>
+  std::vector<size_t> stableSort(std::vector<T> const & v) const {
+    std::vector<size_t> indices(v.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::stable_sort(indices.begin(), indices.end(), [&v](size_t i, size_t j) { return v[i] >= v[j]; });
+    return indices;
+  }
+
   void generateReferenceAnchors(std::vector<Rectangle>       & anchors,
                                 std::vector<float>     const & ratios,
                                 std::vector<float>     const & scales,
@@ -110,14 +141,20 @@ class ProposalLayer : public Layer<Dtype> {
                               int                    const   layer_height,
                               int                    const   feat_stride);
 
-  void clipRectanglesToBounds(std::vector<int>             & indexes,
+  void clipRectanglesToBounds(std::vector<size_t>          & indices,
                               std::vector<Rectangle>       & rectangles,
                               int                    const   width,
                               int                    const   height,
                               bool                   const   auto_clip = false);
 
-  std::vector<int> getLargeRectangles(std::vector<Rectangle> const & rectangles,
-                                      float                  const   min_size);
+  std::vector<size_t> getLargeRectangles(std::vector<Rectangle> const & rectangles,
+                                         float                  const   min_size);
+
+  std::vector<size_t> applyNonMaximumSuppression(std::vector<Rectangle> const & proposals,
+                                                 std::vector<float>     const & scores,
+                                                 float                  const   threshold,
+                                                 size_t                 const   pre_nms_top_n  = 6000,
+                                                 size_t                 const   post_nms_top_n = 300) const;
 
   bool generateProposals(std::vector<Rectangle>          & proposals,
                          std::vector<Rectangle>    const & anchors,
@@ -134,9 +171,9 @@ class ProposalLayer : public Layer<Dtype> {
     bool use_clip_;
 
     std::vector<Rectangle> reference_anchors_;
-    std::vector<int> anchor_indexes_;
-    std::vector<int> proposal_indexes_;
-    std::vector<int> filter_indexes_;
+    std::vector<size_t> anchor_indices_;
+    std::vector<size_t> proposal_indices_;
+    std::vector<size_t> filter_indices_;
 };
 
 }
