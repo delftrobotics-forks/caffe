@@ -1,8 +1,9 @@
+#include "caffe/layers/proposal_layer.hpp"
+
 #include <cfloat>
+#include <cmath>
 #include <limits>
 #include <numeric>
-
-#include "caffe/layers/proposal_layer.hpp"
 
 #define DEBUG
 
@@ -22,17 +23,19 @@ void ProposalLayer<Dtype>::LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
   clip_threshold_   = 1.0 / clip_denominator_;
   use_clip_         = proposal_param.use_clip();
 
-  std::vector<float> ratios = { 0.5, 1, 2 };
-  std::vector<float> scales = { 8, 16, 32 };
+  top[0]->Reshape({ 1, 5 });
 
-  generateReferenceAnchors(reference_anchors_, ratios, scales, 16);
+  generateReferenceAnchors(anchors_, { 0.5, 1, 2 }, { 8, 16, 32 }, 16);
+
+  if (this->phase() == Phase::TRAIN) {
+    top[1]->Reshape({ 1, 1 });
+  }
 }
 
 template <typename Dtype>
 void ProposalLayer<Dtype>::Reshape(std::vector<Blob<Dtype>*> const & bottom,
                                    std::vector<Blob<Dtype>*> const & top)
 {
-  top[0]->Reshape({ 1, 5 });
 }
 
 template <typename Dtype>
@@ -41,56 +44,71 @@ void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
 {
   assert(bottom[0]->shape()[0] == 1);
 
-  int layer_height = bottom[0]->shape()[2];
-  int layer_width  = bottom[0]->shape()[3];
+  layer_height_ = bottom[0]->shape()[2];
+  layer_width_  = bottom[0]->shape()[3];
 
   int image_height = bottom[2]->data_at({ 0, 0 });
   int image_width  = bottom[2]->data_at({ 0, 1 });
-  int num_channels = bottom[2]->data_at({ 0, 2 });
+  float ratio      = bottom[2]->data_at({ 0, 2 });
 
   size_t pre_nms_top_n  = 6000;
   size_t post_nms_top_n = 300;
   float nms_thresh      = 0.7;
   int min_size          = 16;
 
-  std::vector<float> scores = generateScoresVector(*bottom[0], reference_anchors_.size());
+  std::vector<float> scores = generateScoresVector(*bottom[0], anchors_.size());
 
-  std::vector<Rectangle> shifted_anchors;
-  generateShiftedAnchors(shifted_anchors, reference_anchors_, layer_width, layer_height, feat_stride_);
-  clipRectanglesToBounds(anchor_indices_, shifted_anchors, image_width, image_height, false);
+  std::vector<Rectangle> anchors;
+  generateShiftedAnchors(anchors, anchors_, layer_width_, layer_height_, feat_stride_);
+  anchor_index_before_clip_ = clipAnchors(anchors, image_width, image_height, false);
 
   std::vector<Rectangle> proposals;
-  generateProposals(proposals, shifted_anchors, bottom[1]);
-  clipRectanglesToBounds(proposal_indices_, proposals, image_width, image_height, true);
+  generateProposals(proposals, anchors, bottom[1]);
 
-  filter_indices_ = getLargeRectangles(proposals, min_size * num_channels);
+  proposal_index_before_clip_ = clipAnchors(proposals, image_width, image_height, true);
+  ind_after_filter_           = getLargeRectangles(proposals, min_size * ratio);
+  proposals                   = proposal_layer::select(proposals, ind_after_filter_);
+  scores                      = proposal_layer::select(scores, ind_after_filter_);
+  ind_after_sort_             = stableSort(scores);
 
-  std::vector<Rectangle> filter_proposals = proposal_layer::select(proposals, filter_indices_);
-  std::vector<float> filter_scores        = proposal_layer::select(scores, filter_indices_);
-
-  std::vector<size_t> indices = applyNonMaximumSuppression(filter_proposals, filter_scores, nms_thresh, pre_nms_top_n, post_nms_top_n);
-
-
-  filter_proposals = proposal_layer::select(filter_proposals, indices);
-  filter_scores    = proposal_layer::select(filter_scores, indices);
-
-  int const num_proposals = static_cast<int>(filter_proposals.size());
-
-  top[0]->Reshape({ num_proposals, 5 });
-
-  Dtype * data = new Dtype[5 * num_proposals];
-  for (int i = 0; i < num_proposals; ++i) {
-    Point top_left     = filter_proposals[i].topLeft();
-    Point bottom_right = filter_proposals[i].bottomRight();
-
-    data[i * 5 + 0] = 0;
-    data[i * 5 + 1] = top_left.x;
-    data[i * 5 + 2] = top_left.y;
-    data[i * 5 + 3] = bottom_right.x;
-    data[i * 5 + 4] = bottom_right.y;
+  if (pre_nms_top_n > 0 && pre_nms_top_n < ind_after_sort_.size()) {
+    ind_after_sort_.resize(pre_nms_top_n);
   }
 
-  top[0]->set_cpu_data(data);
+  proposals       = proposal_layer::select(proposals, ind_after_sort_);
+  scores          = proposal_layer::select(scores, ind_after_sort_);
+  proposal_index_ = applyNonMaximumSuppression(proposals, scores, nms_thresh);
+
+  if (post_nms_top_n > 0 && post_nms_top_n < proposal_index_.size()) {
+    proposal_index_.resize(post_nms_top_n);
+  }
+
+  proposals = proposal_layer::select(proposals, proposal_index_);
+  scores    = proposal_layer::select(scores, proposal_index_);
+
+  top[0]->Reshape({ static_cast<int>(proposals.size()), 5 });
+  Dtype * top_data = top[0]->mutable_cpu_data();
+
+  for (size_t i = 0; i < proposals.size(); ++i) {
+    Point top_left      = proposals[i].topLeft();
+    Point bottom_right  = proposals[i].bottomRight();
+
+    top_data[i * 5 + 0] = 0;
+    top_data[i * 5 + 1] = top_left.x;
+    top_data[i * 5 + 2] = top_left.y;
+    top_data[i * 5 + 3] = bottom_right.x;
+    top_data[i * 5 + 4] = bottom_right.y;
+  }
+
+  if (this->phase() == Phase::TRAIN) {
+    top[1]->Reshape({ 1, static_cast<int>(proposals.size()) });
+    Dtype * indices_data = top[1]->mutable_cpu_data();
+
+    for (size_t i = 0; i < proposals.size(); ++i) {
+      indices_data[i] = ind_after_filter_[ind_after_sort_[proposal_index_[i]]];
+    }
+
+  }
 }
 
 /** \brief Applies delta transformation on given anchors, to get transformed proposals.
@@ -134,12 +152,15 @@ bool ProposalLayer<Dtype>::generateProposals(std::vector<Rectangle>       & prop
 
 template <typename Dtype>
 std::vector<size_t> ProposalLayer<Dtype>::getLargeRectangles(std::vector<Rectangle> const & rectangles,
-                                                          float                  const   min_size)
+                                                             float                  const   min_size)
 {
   std::vector<size_t> indices;
 
   for (size_t i = 0; i < rectangles.size(); ++i) {
-    if (rectangles[i].width >= min_size && rectangles[i].height >= min_size) {
+    Point top_left     = rectangles[i].topLeft();
+    Point bottom_right = rectangles[i].bottomRight();
+
+    if (bottom_right.x - top_left.x + 1 >= min_size && bottom_right.y - top_left.y + 1 >= min_size) {
       indices.push_back(i);
     }
   }
@@ -148,13 +169,12 @@ std::vector<size_t> ProposalLayer<Dtype>::getLargeRectangles(std::vector<Rectang
 }
 
 template <typename Dtype>
-void ProposalLayer<Dtype>::clipRectanglesToBounds(std::vector<size_t>          & indices,
-                                                  std::vector<Rectangle>       & rectangles,
-                                                  int                    const   width,
-                                                  int                    const   height,
-                                                  bool                   const   auto_clip)
+std::vector<size_t> ProposalLayer<Dtype>::clipAnchors(std::vector<Rectangle>       & rectangles,
+                                                      int                    const   width,
+                                                      int                    const   height,
+                                                      bool                   const   auto_clip)
 {
-  indices.clear();
+  std::vector<size_t> result;
 
   for (size_t i = 0; i < rectangles.size(); ++i) {
     Point top_left     = rectangles[i].topLeft();
@@ -163,7 +183,7 @@ void ProposalLayer<Dtype>::clipRectanglesToBounds(std::vector<size_t>          &
     bool in_range = top_left.x >= 0 && bottom_right.x <= width - 1 &&
                     top_left.y >= 0 && bottom_right.y <= height - 1;
 
-    if (in_range) { indices.push_back(i); }
+    if (in_range) { result.push_back(i); }
 
     if (auto_clip) {
       top_left.x     = std::max(0.f, std::min(top_left.x,     static_cast<float>(width  - 1)));
@@ -174,6 +194,8 @@ void ProposalLayer<Dtype>::clipRectanglesToBounds(std::vector<size_t>          &
       rectangles[i] = Rectangle::fromCoordinates(top_left, bottom_right);
     }
   }
+
+  return result;
 }
 
 template <typename Dtype>
@@ -181,7 +203,92 @@ void ProposalLayer<Dtype>::Backward_cpu(std::vector<Blob<Dtype>*> const & top,
                                         std::vector<bool>         const & propagate_down,
                                         std::vector<Blob<Dtype>*> const & bottom)
 {
-  NOT_IMPLEMENTED;
+  if (propagate_down[1]) {
+    size_t num_elements = static_cast<size_t>(bottom[1]->count(0));
+    Dtype * diff_data = bottom[1]->mutable_cpu_diff();
+    memset(diff_data, 0, num_elements * sizeof(Dtype));
+
+    std::vector<size_t> top_non_zero_ind;
+    for (int i = 0; i < top[0]->shape()[0]; ++i) {
+      for (int j = 0; j < top[0]->shape()[1]; ++j) {
+        if (std::fabs(top[0]->diff_at({ i, j })) > 0) {
+          top_non_zero_ind.push_back(i); break;
+        }
+      }
+    }
+
+    std::vector<size_t> unmap_val = proposal_layer::select(ind_after_filter_,
+                                    proposal_layer::select(ind_after_sort_,
+                                    proposal_layer::select(proposal_index_, top_non_zero_ind)));
+
+    std::vector<bool> weight_out_proposal(unmap_val.size(), false);
+    std::vector<bool> weight_out_anchor  (unmap_val.size(), false);
+
+    // The following code needs to be optimized!
+    // -------------------------------------------
+    for (size_t i = 0; i < unmap_val.size(); ++i) {
+      for (size_t j = 0; j < proposal_index_before_clip_.size(); ++j) {
+        if (proposal_index_before_clip_[j] == unmap_val[i]) {
+          weight_out_proposal[i] = true; break;
+        }
+      }
+      for (size_t j = 0; j < anchor_index_before_clip_.size(); ++j) {
+        if (anchor_index_before_clip_[j] == unmap_val[i]) {
+          weight_out_anchor[i] = true; break;
+        }
+      }
+    }
+    // -------------------------------------------
+
+    std::vector<size_t> channel(unmap_val.size());
+    std::vector<size_t> width  (unmap_val.size());
+    std::vector<size_t> height (unmap_val.size());
+
+    for (size_t i = 0; i < unmap_val.size(); ++i) {
+      channel[i] = unmap_val[i] % anchors_.size();
+      width  [i] = std::fmod(static_cast<float>(unmap_val[i]) / anchors_.size(),  layer_width_);
+      height [i] = std::fmod(static_cast<float>(unmap_val[i]) / anchors_.size() / layer_width_, layer_height_);
+    }
+
+    for (size_t i = 0; i < channel.size(); ++i) {
+      Dtype dfdxc = top[0]->diff_at({ static_cast<int>(top_non_zero_ind[i]), 1 });
+      Dtype dfdyc = top[0]->diff_at({ static_cast<int>(top_non_zero_ind[i]), 2 });
+      Dtype dfdw  = top[0]->diff_at({ static_cast<int>(top_non_zero_ind[i]), 3 });
+      Dtype dfdh  = top[0]->diff_at({ static_cast<int>(top_non_zero_ind[i]), 4 });
+
+      int c = static_cast<int>(channel[i]);
+      int h = static_cast<int>(height[i]);
+      int w = static_cast<int>(width[i]);
+
+      Dtype anchor_w = anchors_[c].width  / feat_stride_;
+      Dtype anchor_h = anchors_[c].height / feat_stride_;
+
+      size_t index = bottom[1]->offset(0, 4 * c, h, w);
+      diff_data[index] = dfdxc * anchor_w * weight_out_proposal[i] * weight_out_anchor[i];
+
+      index = bottom[1]->offset(0, 4 * c + 1, h, w);
+      diff_data[index] = dfdyc * anchor_h * weight_out_proposal[i] * weight_out_anchor[i];
+
+      index = bottom[1]->offset(0, 4 * c + 2, h, w);
+      diff_data[index] = dfdw * std::exp(bottom[1]->data_at(0, 4 * c + 2, h, w)) * anchor_w * weight_out_proposal[i] * weight_out_anchor[i];
+
+      index = bottom[1]->offset(0, 4 * c + 3, h, w);
+      diff_data[index] = dfdh * std::exp(bottom[1]->data_at(0, 4 * c + 3, h, w)) * anchor_h * weight_out_proposal[i] * weight_out_anchor[i];
+    }
+
+    if (use_clip_) {
+      for (size_t i = 0; i < channel.size(); ++i) {
+        int c = static_cast<int>(channel[i]);
+        int h = static_cast<int>(height[i]);
+        int w = static_cast<int>(width[i]);
+
+        for (int j = 0; j < 4; ++j) {
+          size_t index = bottom[1]->offset(0, 4 * c + j, h, w);
+          diff_data[index] = std::min(std::max(diff_data[index], -clip_threshold_), clip_threshold_);
+        }
+      }
+    }
+  }
 }
 
 /** \brief Generates anchors with different ratios and scales, starting from a
@@ -296,16 +403,12 @@ Rectangle ProposalLayer<Dtype>::generateAnchorByRatio(Rectangle const & anchor, 
 template <typename Dtype>
 std::vector<size_t> ProposalLayer<Dtype>::applyNonMaximumSuppression(std::vector<Rectangle> const & proposals,
                                                                      std::vector<float>     const & scores,
-                                                                     float                  const   threshold,
-                                                                     size_t                 const   pre_nms_top_n,
-                                                                     size_t                 const   post_nms_top_n) const
+                                                                     float                  const   threshold)
 {
   std::vector<size_t> result;
-  std::vector<size_t> order = stableSort(scores);
 
-  if (pre_nms_top_n < order.size()) {
-    order.resize(pre_nms_top_n);
-  }
+  std::vector<size_t> order(scores.size());
+  std::iota(order.begin(), order.end(), 0);
 
   while (!order.empty()) {
     result.push_back(order[0]);
@@ -329,10 +432,6 @@ std::vector<size_t> ProposalLayer<Dtype>::applyNonMaximumSuppression(std::vector
     }
 
     order = new_order;
-  }
-
-  if (post_nms_top_n > 0 && post_nms_top_n < result.size()) {
-    result.resize(post_nms_top_n);
   }
 
   return result;

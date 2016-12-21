@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <iomanip>
+#include <numeric>
 
 namespace caffe {
 
@@ -141,20 +142,17 @@ class ProposalLayer : public Layer<Dtype> {
                               int                    const   layer_height,
                               int                    const   feat_stride);
 
-  void clipRectanglesToBounds(std::vector<size_t>          & indices,
-                              std::vector<Rectangle>       & rectangles,
-                              int                    const   width,
-                              int                    const   height,
-                              bool                   const   auto_clip = false);
+  std::vector<size_t> clipAnchors(std::vector<Rectangle>       & rectangles,
+                                  int                    const   width,
+                                  int                    const   height,
+                                  bool                   const   auto_clip = false);
 
   std::vector<size_t> getLargeRectangles(std::vector<Rectangle> const & rectangles,
                                          float                  const   min_size);
 
   std::vector<size_t> applyNonMaximumSuppression(std::vector<Rectangle> const & proposals,
                                                  std::vector<float>     const & scores,
-                                                 float                  const   threshold,
-                                                 size_t                 const   pre_nms_top_n  = 6000,
-                                                 size_t                 const   post_nms_top_n = 300) const;
+                                                 float                  const   threshold);
 
   bool generateProposals(std::vector<Rectangle>          & proposals,
                          std::vector<Rectangle>    const & anchors,
@@ -166,14 +164,19 @@ class ProposalLayer : public Layer<Dtype> {
 
   protected:
     int feat_stride_;
-    float clip_denominator_;
-    float clip_threshold_;
+    Dtype clip_denominator_;
+    Dtype clip_threshold_;
     bool use_clip_;
 
-    std::vector<Rectangle> reference_anchors_;
-    std::vector<size_t> anchor_indices_;
-    std::vector<size_t> proposal_indices_;
-    std::vector<size_t> filter_indices_;
+    int layer_width_;
+    int layer_height_;
+
+    std::vector<Rectangle> anchors_;
+    std::vector<size_t> anchor_index_before_clip_;
+    std::vector<size_t> proposal_index_;
+    std::vector<size_t> proposal_index_before_clip_;
+    std::vector<size_t> ind_after_filter_;
+    std::vector<size_t> ind_after_sort_;
 };
 
 }
