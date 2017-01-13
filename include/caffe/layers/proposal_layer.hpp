@@ -4,8 +4,9 @@
 #include "caffe/common.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
-
 #include "caffe/layers/loss_layer.hpp"
+
+#include <opencv2/opencv.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -15,8 +16,51 @@
 
 namespace caffe {
 
-namespace proposal_layer {
+template <typename T>
+class Rectangle : public cv::Rect_<T> {
+public:
 
+  using cv::Rect_<T>::Rect_;
+
+  Rectangle & operator&(Rectangle const & other) {
+    T tl_x = std::max(this->tl().x, other.tl().x);
+    T tl_y = std::max(this->tl().y, other.tl().y);
+    T br_x = std::min(this->br().x, other.br().x);
+    T br_y = std::min(this->br().y, other.br().y);
+
+    this->x      = tl_x;
+    this->y      = tl_y;
+    this->width  = br_x - tl_x;
+    this->height = br_y - tl_y;
+
+    return *this;
+  }
+
+  cv::Point_<T> center() const { return { this->x + this->width / 2, this->y + this->height / 2 }; }
+
+  static Rectangle<T> centered(T const x, T const y, T const width, T const height) {
+    return { x - width / 2, y - height / 2, width, height };
+  }
+
+  static Rectangle<T> centered(cv::Point_<T> const center, T const width, T const height) {
+    return Rectangle<T>::centered(center.x, center.y, width, height);
+  }
+
+  static Rectangle<T> centered(cv::Point_<T> const center, cv::Size_<T> const size) {
+    return Rectangle<T>::centered(center.x, center.y, size.width, size.height);
+  }
+
+  friend std::ostream & operator<<(std::ostream & stream, Rectangle const & r) {
+    stream << "[" << r.tl().x << ", " << r.tl().y << ", " << r.br().x << ", " << r.br().y << "]";
+    return stream;
+  }
+};
+
+typedef Rectangle<float>  Rectanglef;
+typedef Rectangle<double> Rectangled;
+typedef Rectangle<int>    Rectanglei;
+ 
+namespace proposal_layer {
   template <typename T>
   void print(std::vector<T> const & vector) {
     for (auto const & element : vector) { std::cout << element << " "; }
@@ -29,80 +73,10 @@ namespace proposal_layer {
     std::transform(indices.begin(), indices.end(), std::back_inserter(result), [vector](size_t i) { return vector[i]; });
     return result;
   }
-
-  struct Point {
-    float x;
-    float y;
-
-    Point(float _x, float _y)  { x = _x;      y = _y;      }
-    Point(Point const & other) { x = other.x; y = other.y; }
-
-    friend std::ostream & operator<<(std::ostream & stream, Point const & point) {
-      stream << "[ x: " << std::setw(8) << point.x << ", y: " << std::setw(8) << point.y << "]";
-      return stream;
-    }
-  };
-
-  struct Rectangle {
-    Point center;
-    float width;
-    float height;
-
-    Rectangle(float _x, float _y, float _width, float _height): center(_x, _y),  width(_width), height(_height) {}
-    Rectangle(Point _center, float _width, float _height):      center(_center), width(_width), height(_height) {}
-
-    Rectangle intersect(Rectangle const & rect) const {
-      Point top_left     = this->topLeft();
-      Point bottom_right = this->bottomRight();
-
-      float x1 = std::max(top_left.x,     rect.topLeft().x);
-      float y1 = std::max(top_left.y,     rect.topLeft().y);
-      float x2 = std::min(bottom_right.x, rect.bottomRight().x);
-      float y2 = std::min(bottom_right.y, rect.bottomRight().y);
-
-      if (x1 > x2 || y1 > y2) { return Rectangle(0, 0, 0, 0); }
-
-      return Rectangle::fromCoordinates(x1, y1, x2, y2);
-    }
-
-    friend std::ostream & operator<<(std::ostream & stream, Rectangle const & anchor) {
-      //stream << anchor.center << " [ w: " << std::setw(6) << anchor.width  <<
-                                 //", h: "  << std::setw(6) << anchor.height << " ]";
-      stream << anchor.topLeft() << " " << anchor.bottomRight();
-      return stream;
-    }
-
-    static Rectangle fromCoordinates(float px, float py, float rx, float ry) {
-      return Rectangle::fromCoordinates(Point(px, py), Point(rx, ry));
-    }
-
-    static Rectangle fromCoordinates(Point top_left, Point bottom_right) {
-      float width  = bottom_right.x - top_left.x + 1;
-      float height = bottom_right.y - top_left.y + 1;
-
-      Point center(top_left.x + 0.5 * (width  - 1), top_left.y + 0.5 * (height - 1));
-
-      return Rectangle(center, width, height);
-    }
-
-    float area() const { return width * height; }
-
-    Point topLeft() const {
-      return Point(center.x - 0.5 * (width  - 1), center.y - 0.5 * (height - 1));
-    }
-
-    Point bottomRight() const {
-      return Point(center.x + 0.5 * (width  - 1), center.y + 0.5 * (height - 1));
-    }
-  };
 }
 
 template <typename Dtype>
 class ProposalLayer : public Layer<Dtype> {
-
-  using Rectangle = proposal_layer::Rectangle;
-  using Point  = proposal_layer::Point;
-
   public:
   explicit ProposalLayer(LayerParameter const & param): Layer<Dtype>(param) {}
 
@@ -131,47 +105,40 @@ class ProposalLayer : public Layer<Dtype> {
     return indices;
   }
 
-  void generateReferenceAnchors(std::vector<Rectangle>       & anchors,
-                                std::vector<float>     const & ratios,
-                                std::vector<float>     const & scales,
-                                int                    const   base_size);
+  std::vector<Rectanglef> generateBaseAnchors(std::vector<float> const & ratios,
+                                              std::vector<float> const & scales,
+                                              int                const   base_size);
 
-  void generateShiftedAnchors(std::vector<Rectangle>       & shifted_anchors,
-                              std::vector<Rectangle> const & reference_anchors,
-                              int                    const   layer_width,
-                              int                    const   layer_height,
-                              int                    const   feat_stride);
+  std::vector<Rectanglef> generateShiftedAnchors(std::vector<Rectanglef> const & base_anchors,
+                                                 cv::Size                const   layer_size,
+                                                 int                     const   feat_stride);
 
-  std::vector<size_t> clipAnchors(std::vector<Rectangle>       & rectangles,
-                                  int                    const   width,
-                                  int                    const   height,
-                                  bool                   const   auto_clip = false);
+  std::vector<size_t> clipRectangles(std::vector<Rectanglef>       & rectangles,
+                                     cv::Size                const   image_size,
+                                     bool                    const   auto_clip = false) const;
 
-  std::vector<size_t> getLargeRectangles(std::vector<Rectangle> const & rectangles,
-                                         float                  const   min_size);
+  std::vector<size_t> getLargeRectangles(std::vector<Rectanglef> const & rectangles,
+                                         float                   const   min_size) const;
 
-  std::vector<size_t> applyNonMaximumSuppression(std::vector<Rectangle> const & proposals,
-                                                 std::vector<float>     const & scores,
-                                                 float                  const   threshold);
+  std::vector<size_t> applyNonMaximumSuppression(std::vector<Rectanglef> const & proposals,
+                                                 std::vector<Dtype>      const & scores,
+                                                 float                   const   threshold) const;
 
-  bool generateProposals(std::vector<Rectangle>          & proposals,
-                         std::vector<Rectangle>    const & anchors,
-                         Blob<Dtype>               const * deltas);
+  std::vector<Rectanglef> generateProposals(std::vector<Rectanglef> const & anchors,
+                                            Blob<Dtype>             const * deltas);
 
-  Rectangle generateAnchorByRatio(Rectangle const & anchor, float const ratio = 1.0);
-  Rectangle generateAnchorByScale(Rectangle const & anchor, float const scale = 1.0);
-  std::vector<float> generateScoresVector(Blob<Dtype> const & blob, int const offset) const;
+  Rectanglef generateAnchorByRatio(Rectanglef const & anchor, float const ratio = 1.0) const;
+  Rectanglef generateAnchorByScale(Rectanglef const & anchor, float const scale = 1.0) const;
+  std::vector<Dtype> generateScoresVector(Blob<Dtype> const & blob, int const offset) const;
 
   protected:
-    int feat_stride_;
-    Dtype clip_denominator_;
-    Dtype clip_threshold_;
-    bool use_clip_;
+    cv::Size layer_size_;
+    cv::Size image_size_;
 
-    int layer_width_;
-    int layer_height_;
+    std::vector<Rectanglef> anchors_;
 
-    std::vector<Rectangle> anchors_;
+    ProposalParameter parameters_;
+
     std::vector<size_t> anchor_index_before_clip_;
     std::vector<size_t> proposal_index_;
     std::vector<size_t> proposal_index_before_clip_;

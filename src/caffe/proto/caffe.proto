@@ -924,9 +924,10 @@ message PowerParameter {
 message ProposalParameter {
   optional uint32 feat_stride = 1 [default = 16];
   optional uint32 clip_base = 2 [default = 256];
-  optional uint32 gradient_scale = 5 [default = 1];
   optional bool use_clip = 3 [default = false];
-  repeated uint32 scales = 4 [packed = true];
+  optional uint32 top_pre_nms = 4 [default = 6000];
+  optional uint32 top_post_nms = 5 [default = 300];
+  optional float nms_thresh = 6 [default = 0.7];
 }
 
 message PythonParameter {
