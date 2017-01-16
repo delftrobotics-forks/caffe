@@ -7,6 +7,10 @@
 
 namespace caffe {
 
+/** \brief Implements the layer setup function.
+ *  \param [in]  bottom   Bottom (previous/input) Caffe layers.
+ *  \param [in]  deltas   Top (next/output) Caffe layers.
+ */
 template <typename Dtype>
 void ProposalLayer<Dtype>::LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
                                       std::vector<Blob<Dtype>*> const & top)
@@ -19,12 +23,20 @@ void ProposalLayer<Dtype>::LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
   if (this->phase() == Phase::TRAIN) { top[1]->Reshape({ 1, 1 }); }
 }
 
+/** \brief Implements the layer reshaping function.
+ *  \param [in]  bottom   Bottom (previous/input) Caffe layers.
+ *  \param [in]  deltas   Top (next/output) Caffe layers.
+ */
 template <typename Dtype>
 void ProposalLayer<Dtype>::Reshape(std::vector<Blob<Dtype>*> const & bottom,
                                    std::vector<Blob<Dtype>*> const & top)
 {
 }
 
+/** \brief Implements the forward propagation function.
+ *  \param [in]  bottom    Bottom (previous/input) Caffe layers.
+ *  \param [in]  deltas    Top (next/output) Caffe layers.
+ */
 template <typename Dtype>
 void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
                                        std::vector<Blob<Dtype>*> const & top)
@@ -46,9 +58,10 @@ void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
 
   proposal_index_before_clip_ = clipRectangles(proposals, image_size_, true);
   ind_after_filter_           = getLargeRectangles(proposals, 16 * ratio);
-  proposals                   = proposal_layer::select(proposals, ind_after_filter_);
-  scores                      = proposal_layer::select(scores, ind_after_filter_);
-  ind_after_sort_             = stableSort(scores);
+
+  proposals       = proposal_layer::select(proposals, ind_after_filter_);
+  scores          = proposal_layer::select(scores, ind_after_filter_);
+  ind_after_sort_ = stableSort(scores);
 
   if (parameters_.top_pre_nms() > 0 && parameters_.top_pre_nms() < ind_after_sort_.size()) {
     ind_after_sort_.resize(parameters_.top_pre_nms());
@@ -91,10 +104,9 @@ void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
 }
 
 /** \brief Applies delta transformation on given anchors, to get transformed proposals.
- *  \param [out] proposals Vector of proposals.
  *  \param [in]  anchors   Vector of anchors.
  *  \param [in]  deltas    Blob with delta transformations.
- *  \return True if proposals are returned, false otherwise.
+ *  \return Vector of proposals.
  */
 template <typename Dtype>
 std::vector<Rectanglef> ProposalLayer<Dtype>::generateProposals(std::vector<Rectanglef> const & anchors,
@@ -127,6 +139,11 @@ std::vector<Rectanglef> ProposalLayer<Dtype>::generateProposals(std::vector<Rect
   return proposals;
 }
 
+/** \brief Filters out rectangles with width or height lower than a given threshold.
+ *  \param [in]  rectangles   Vector of rectangles.
+ *  \param [in]  min_size     Threshold to be used for filtering.
+ *  \return Vector of indices corresponding to the filtered rectangles.
+ */
 template <typename Dtype>
 std::vector<size_t> ProposalLayer<Dtype>::getLargeRectangles(std::vector<Rectanglef> const & rectangles,
                                                              float                   const   min_size) const
@@ -140,6 +157,12 @@ std::vector<size_t> ProposalLayer<Dtype>::getLargeRectangles(std::vector<Rectang
   return indices;
 }
 
+/** \brief Clip rectangle dimensions to a given image size.
+ *  \param [in,out]  rectangles   Vector of rectangles.
+ *  \param [in]      image_size   Input image size.
+ *  \param [in]      auto_clip    True if the dimensions of the rectangles will be changed, false otherwise.
+ *  \return Vector of indices corresponding to the clipped rectangles.
+ */
 template <typename Dtype>
 std::vector<size_t> ProposalLayer<Dtype>::clipRectangles(std::vector<Rectanglef>       & rectangles,
                                                          cv::Size                const   image_size,
@@ -156,13 +179,17 @@ std::vector<size_t> ProposalLayer<Dtype>::clipRectangles(std::vector<Rectanglef>
     }
 
     if (auto_clip) {
-      rectangles[i] = rectangles[i] & Rectanglef(0, 0, image_size.width, image_size.height);
+      rectangles[i] &= Rectanglef(0, 0, image_size.width, image_size.height);
     }
   }
 
   return indices;
 }
 
+/** \brief Implements the backward propagation function.
+ *  \param [in]  bottom    Bottom (previous/input) Caffe layers.
+ *  \param [in]  deltas    Top (next/output) Caffe layers.
+ */
 template <typename Dtype>
 void ProposalLayer<Dtype>::Backward_cpu(std::vector<Blob<Dtype>*> const & top,
                                         std::vector<bool>         const & propagate_down,
@@ -186,24 +213,18 @@ void ProposalLayer<Dtype>::Backward_cpu(std::vector<Blob<Dtype>*> const & top,
                                     proposal_layer::select(ind_after_sort_,
                                     proposal_layer::select(proposal_index_, top_non_zero_ind)));
 
-    std::vector<bool> weight_out_proposal(unmap_val.size(), false);
-    std::vector<bool> weight_out_anchor  (unmap_val.size(), false);
+    std::vector<bool> weight_out_proposal;
+    std::vector<bool> weight_out_anchor;
 
-    // The following code needs to be optimized!
-    // -------------------------------------------
+    weight_out_proposal.reserve(unmap_val.size());
+    weight_out_anchor.reserve(unmap_val.size());
+
     for (size_t i = 0; i < unmap_val.size(); ++i) {
-      for (size_t j = 0; j < proposal_index_before_clip_.size(); ++j) {
-        if (proposal_index_before_clip_[j] == unmap_val[i]) {
-          weight_out_proposal[i] = true; break;
-        }
-      }
-      for (size_t j = 0; j < anchor_index_before_clip_.size(); ++j) {
-        if (anchor_index_before_clip_[j] == unmap_val[i]) {
-          weight_out_anchor[i] = true; break;
-        }
-      }
+      weight_out_proposal.push_back(std::binary_search(proposal_index_before_clip_.begin(),
+                                                       proposal_index_before_clip_.end(), unmap_val[i]));
+      weight_out_anchor.push_back  (std::binary_search(anchor_index_before_clip_.begin(),
+                                                       anchor_index_before_clip_.end(), unmap_val[i]));
     }
-    // -------------------------------------------
 
     std::vector<size_t> channel(unmap_val.size());
     std::vector<size_t> width  (unmap_val.size());
@@ -259,11 +280,11 @@ void ProposalLayer<Dtype>::Backward_cpu(std::vector<Blob<Dtype>*> const & top,
 }
 
 /** \brief Generates anchors with different ratios and scales, starting from a
- *         square anchor with size \p base_size, centered at (0, 0).
- *  \param [out] anchors   Vector with the generated anchors.
- *  \param [in]  ratios    Vector with desired anchor ratios.
- *  \param [in]  scales    Vector with desired anchor scales.
- *  \param [in]  base_size Size of the (square) base anchor.
+ *         square anchor with size 'base_size', centered at (0, 0).
+ *  \param [in]   ratios      Vector with desired anchor ratios.
+ *  \param [in]   scales      Vector with desired anchor scales.
+ *  \param [in]   base_size   Size of the (square) base anchor.
+ *  \return Vector with the generated anchors.
  */
 template <typename Dtype>
 std::vector<Rectanglef> ProposalLayer<Dtype>::generateBaseAnchors(std::vector<float> const & ratios,
@@ -287,11 +308,10 @@ std::vector<Rectanglef> ProposalLayer<Dtype>::generateBaseAnchors(std::vector<fl
 
 /** \brief Shifts a set of reference anchors, such that they "cover" the whole surface
  *         of a WxH grid, where W and H are the width and height of the bottom layer.
- *  \param [out] shifted_anchors   Vector with the generated (shifted) anchors.
- *  \param [in]  reference_anchors Vector with the reference (input) anchors.
- *  \param [in]  layer_width       Width of the bottom layer.
- *  \param [in]  layer_height      Height of the bottom layer.
- *  \param [in]  feat_stride       Stride used when generating the shifted anchors.
+ *  \param [in]  reference_anchors   Vector with the reference (input) anchors.
+ *  \param [in]  layer_size          Size of the bottom layer.
+ *  \param [in]  feat_stride         Stride used when generating the shifted anchors.
+ *  \return Vector with the generated (shifted) anchors.
  */
 template <typename Dtype>
 std::vector<Rectanglef> ProposalLayer<Dtype>::generateShiftedAnchors(std::vector<Rectanglef> const & base_anchors,
@@ -315,8 +335,8 @@ std::vector<Rectanglef> ProposalLayer<Dtype>::generateShiftedAnchors(std::vector
 }
 
 /** \brief Extracts the foreground scores from a blob and stores them in a vector of floats.
-  * \param [in] blob   Blob that stores the scores.
-  * \param [in] offset Position in the blob starting from which scores are stored.
+  * \param [in]  blob     Blob that stores the scores.
+  * \param [in]  offset   Position in the blob starting from which scores are stored.
   * \return Vector with scores, stored as float values.
   */
 template <typename Dtype>
@@ -339,8 +359,8 @@ std::vector<Dtype> ProposalLayer<Dtype>::generateScoresVector(Blob<Dtype> const 
 }
 
 /** \brief Scales up an reference anchor, by a given factor.
- *  \param [in] anchor Anchor that is used as reference (to be scaled up).
- *  \param [in] scale  Factor by which the reference anchor is scaled up.
+ *  \param [in]  anchor   Anchor that is used as reference (to be scaled up).
+ *  \param [in]  scale    Factor by which the reference anchor is scaled up.
  *  \return Scaled up anchor.
  */
 template <typename Dtype>
@@ -350,8 +370,8 @@ Rectanglef ProposalLayer<Dtype>::generateAnchorByScale(Rectanglef const & anchor
 }
 
 /** \brief Generates an anchor with the same area as an reference one and a given aspect ratio.
- *  \param [in] anchor Anchor that is used as reference.
- *  \param [in] ratio  AspeM``ct ratio of the output anchor.
+ *  \param [in]  anchor   Anchor that is used as reference.
+ *  \param [in]  ratio    Aspect ratio of the output anchor.
  *  \return Anchor with the given aspect ratio and same (reference) area.
  */
 template <typename Dtype>
@@ -363,6 +383,12 @@ Rectanglef ProposalLayer<Dtype>::generateAnchorByRatio(Rectanglef const & anchor
   return Rectanglef::centered(center.x, center.y, size.width, size.height);
 }
 
+/** \brief Filters out unimportant proposals, by applying the non-maximum suppression algorithm.
+ *  \param [in]  proposals   Vector of proposal rectangles.
+ *  \param [in]  scores      Vector of proposal scores.
+ *  \param [in]  threshold   Threshold to be used for filtering.
+ *  \return Vector of indices corresponding to the proposals to be kept.
+ */
 template <typename Dtype>
 std::vector<size_t> ProposalLayer<Dtype>::applyNonMaximumSuppression(std::vector<Rectanglef> const & proposals,
                                                                      std::vector<Dtype>      const & scores,

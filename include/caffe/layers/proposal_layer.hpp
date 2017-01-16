@@ -22,19 +22,7 @@ public:
 
   using cv::Rect_<T>::Rect_;
 
-  Rectangle & operator&(Rectangle const & other) {
-    T tl_x = std::max(this->tl().x, other.tl().x);
-    T tl_y = std::max(this->tl().y, other.tl().y);
-    T br_x = std::min(this->br().x, other.br().x);
-    T br_y = std::min(this->br().y, other.br().y);
-
-    this->x      = tl_x;
-    this->y      = tl_y;
-    this->width  = br_x - tl_x;
-    this->height = br_y - tl_y;
-
-    return *this;
-  }
+  Rectangle(cv::Rect_<T> const & other): cv::Rect_<T>{other} {}
 
   cv::Point_<T> center() const { return { this->x + this->width / 2, this->y + this->height / 2 }; }
 
