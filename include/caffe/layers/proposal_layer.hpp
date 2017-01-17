@@ -4,7 +4,6 @@
 #include "caffe/common.hpp"
 #include "caffe/layer.hpp"
 #include "caffe/proto/caffe.pb.h"
-#include "caffe/layers/loss_layer.hpp"
 
 #include <opencv2/opencv.hpp>
 
