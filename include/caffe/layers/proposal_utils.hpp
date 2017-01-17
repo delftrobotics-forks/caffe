@@ -6,35 +6,6 @@
 #include <numeric>
 
 namespace caffe {
-
-template <typename T>
-class Rectangle : public cv::Rect_<T> {
-public:
-
-  using cv::Rect_<T>::Rect_;
-
-  Rectangle(cv::Rect_<T> const & other): cv::Rect_<T>{other} {}
-
-  cv::Point_<T> center() const { return { this->x + this->width / 2, this->y + this->height / 2 }; }
-
-  static Rectangle<T> centered(T const x, T const y, T const width, T const height) {
-    return { x - width / 2, y - height / 2, width, height };
-  }
-
-  static Rectangle<T> centered(cv::Point_<T> const center, T const width, T const height) {
-    return Rectangle<T>::centered(center.x, center.y, width, height);
-  }
-
-  static Rectangle<T> centered(cv::Point_<T> const center, cv::Size_<T> const size) {
-    return Rectangle<T>::centered(center.x, center.y, size.width, size.height);
-  }
-
-  friend std::ostream & operator<<(std::ostream & stream, Rectangle const & r) {
-    stream << "[" << r.tl().x << ", " << r.tl().y << ", " << r.br().x << ", " << r.br().y << "]";
-    return stream;
-  }
-};
-
 namespace proposal_layer {
 
 /** \brief Creates a rectangle, given its center and dimensions.
@@ -316,5 +287,4 @@ std::vector<T> generateScoresVector(Blob<T> const & blob, int const offset) {
 }
 
 }
-
 }
