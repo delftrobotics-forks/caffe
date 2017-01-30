@@ -1,10 +1,33 @@
 #include "caffe/layers/proposal_layer.hpp"
+#include "caffe/layers/proposal_anchor_transforms.hpp"
 
 #include <cfloat>
 #include <cmath>
 #include <limits>
 
 namespace caffe {
+
+/** \brief Extracts the foreground scores from a blob and stores them in a vector of floats.
+  * \param [in]  blob     Blob that stores the scores.
+  * \param [in]  offset   Position in the blob starting from which scores are stored.
+  * \return Vector with scores, stored as float values.
+  */
+template <typename Dtype>
+std::vector<Dtype> ProposalLayer<Dtype>::generateScoresVector(Blob<Dtype> const & blob, int const offset) {
+  std::vector<Dtype> scores;
+  std::vector<int> shape = blob.shape();
+
+  scores.reserve(shape[2] * shape[3] * (shape[1] - offset));
+  for (int j = 0; j < shape[2]; ++j) {
+    for (int k = 0; k < shape[3]; ++k) {
+      for (int i = offset; i < shape[1]; ++i) {
+        scores.push_back(blob.data_at(0, i, j, k));
+      }
+    }
+  }
+
+  return scores;
+}
 
 /** \brief Implements the layer setup function.
  *  \param [in]  bottom   Bottom (previous/input) Caffe layers.
@@ -17,7 +40,7 @@ void ProposalLayer<Dtype>::LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
   (void) bottom;
 
   parameters_ = this->layer_param_.proposal_param();
-  anchors_    = proposal_layer::generateBaseAnchors<Dtype>({ 0.5, 1, 2 }, { 8, 16, 32 }, 16);
+  anchors_    = proposal_layer::anchor::generateBaseAnchors<Dtype>({ 0.5, 1, 2 }, { 8, 16, 32 }, 16);
 
   top[0]->Reshape({ 1, 5 });
 
@@ -53,32 +76,32 @@ void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
   image_size_.width  = bottom[2]->data_at({ 0, 1 });
   Dtype ratio        = bottom[2]->data_at({ 0, 2 });
 
-  auto scores                 = proposal_layer::generateScoresVector(*bottom[0], anchors_.size());
-  auto anchors                = proposal_layer::generateShiftedAnchors(anchors_, layer_size_, parameters_.feat_stride());
-  anchor_index_before_clip_   = proposal_layer::clipToDimensions(anchors, image_size_, false);
+  auto scores                 = generateScoresVector(*bottom[0], anchors_.size());
+  auto anchors                = proposal_layer::anchor::generateShiftedAnchors(anchors_, layer_size_, parameters_.feat_stride());
+  anchor_index_before_clip_   = proposal_layer::rectangle::clipRectangles(anchors, image_size_, false);
 
-  auto proposals              = proposal_layer::generateProposals(anchors, bottom[1]);
-  proposal_index_before_clip_ = proposal_layer::clipToDimensions(proposals, image_size_, true);
-  ind_after_filter_           = proposal_layer::getLargeRectangles(proposals, 16 * ratio);
+  auto proposals              = proposal_layer::anchor::generateProposals(anchors, bottom[1]);
+  proposal_index_before_clip_ = proposal_layer::rectangle::clipRectangles(proposals, image_size_, true);
+  ind_after_filter_           = proposal_layer::rectangle::getLargeRectangles(proposals, 16 * ratio);
 
-  proposals                   = proposal_layer::select(proposals, ind_after_filter_);
-  scores                      = proposal_layer::select(scores, ind_after_filter_);
-  ind_after_sort_             = proposal_layer::sort(scores);
+  proposals                   = proposal_layer::utils::select(proposals, ind_after_filter_);
+  scores                      = proposal_layer::utils::select(scores, ind_after_filter_);
+  ind_after_sort_             = proposal_layer::utils::sort(scores);
 
   if (parameters_.top_pre_nms() > 0 && parameters_.top_pre_nms() < ind_after_sort_.size()) {
     ind_after_sort_.resize(parameters_.top_pre_nms());
   }
 
-  proposals                   = proposal_layer::select(proposals, ind_after_sort_);
-  scores                      = proposal_layer::select(scores, ind_after_sort_);
-  proposal_index_             = proposal_layer::applyNonMaximumSuppression(proposals, scores, parameters_.nms_thresh());
+  proposals                   = proposal_layer::utils::select(proposals, ind_after_sort_);
+  scores                      = proposal_layer::utils::select(scores, ind_after_sort_);
+  proposal_index_             = proposal_layer::anchor::applyNonMaximumSuppression(proposals, scores, parameters_.nms_thresh());
 
   if (parameters_.top_post_nms() > 0 && parameters_.top_post_nms() < proposal_index_.size()) {
     proposal_index_.resize(parameters_.top_post_nms());
   }
 
-  proposals                   = proposal_layer::select(proposals, proposal_index_);
-  scores                      = proposal_layer::select(scores, proposal_index_);
+  proposals                   = proposal_layer::utils::select(proposals, proposal_index_);
+  scores                      = proposal_layer::utils::select(scores, proposal_index_);
 
   top[0]->Reshape({ static_cast<int>(proposals.size()), 5 });
   Dtype * top_data = top[0]->mutable_cpu_data();
@@ -87,11 +110,11 @@ void ProposalLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & bottom,
     cv::Point_<Dtype> tl = proposals[i].tl();
     cv::Point_<Dtype> br = proposals[i].br();
 
-    top_data[i * 5 + 0] = 0;
+    top_data[i * 5]     = 0;
     top_data[i * 5 + 1] = tl.x;
     top_data[i * 5 + 2] = tl.y;
-    top_data[i * 5 + 3] = br.x;
-    top_data[i * 5 + 4] = br.y;
+    top_data[i * 5 + 3] = br.x - 1;
+    top_data[i * 5 + 4] = br.y - 1;
   }
 
   if (this->phase() == Phase::TRAIN) {
@@ -128,9 +151,9 @@ void ProposalLayer<Dtype>::Backward_cpu(std::vector<Blob<Dtype>*> const & top,
       }
     }
 
-    std::vector<size_t> unmap_val = proposal_layer::select(ind_after_filter_,
-                                    proposal_layer::select(ind_after_sort_,
-                                    proposal_layer::select(proposal_index_, top_non_zero_ind)));
+    std::vector<size_t> unmap_val = proposal_layer::utils::select(ind_after_filter_,
+                                    proposal_layer::utils::select(ind_after_sort_,
+                                    proposal_layer::utils::select(proposal_index_, top_non_zero_ind)));
 
     std::vector<bool> weight_out_proposal;
     std::vector<bool> weight_out_anchor;
