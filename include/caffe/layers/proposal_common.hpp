@@ -155,9 +155,8 @@ namespace blob {
     std::vector<cv::Mat_<T>> result;
     result.reserve(end[slice_index] - start[slice_index]);
 
-    cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
-
     std::vector<int> indices = start;
+      cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
     for (int i = start[slice_index]; i < end[slice_index]; ++i) {
       for (int j = start[row_index]; j < end[row_index]; ++j) {
         for (int k = start[col_index]; k < end[col_index]; ++k) {
