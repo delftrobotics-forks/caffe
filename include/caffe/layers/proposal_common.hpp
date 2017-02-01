@@ -53,16 +53,21 @@ namespace blob {
     for (int i = 0; i < static_cast<int>(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
-      if (found_indices) { assert(start[i] == end[i]); continue; }
+      if (found_indices) { assert(start[i] + 1 == end[i]); continue; }
+      if (start[i] + 1 == end[i]) { continue; }
+
       found_indices = true; index = i;
     }
+
+    assert(found_indices);
 
     std::vector<T> result;
     result.reserve(end[index] - start[index]);
 
     std::vector<int> indices = start;
     for (int i = start[index]; i < end[index]; ++i) {
-      result.push_back(blob.data_at(indices)); ++indices[index];
+      indices[index] = i;
+      result.push_back(blob.data_at(indices));
     }
 
     return result;
@@ -90,18 +95,23 @@ namespace blob {
     for (int i = 0; i < static_cast<int>(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
-      if (found_row_indices && found_col_indices) { assert(start[i] == end[i]); continue; }
+      if (found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
+      if (start[i] + 1 == end[i])                 { continue; }
+
       if (!found_row_indices) { found_row_indices = true; row_index = i; continue; }
       found_col_indices = true; col_index = i;
     }
+
+    assert(found_row_indices && found_col_indices);
 
     cv::Mat_<T> result(end[row_index] - start[row_index], end[col_index] - start[col_index]);
     std::vector<int> indices = start;
     for (int i = start[row_index]; i < end[row_index]; ++i) {
       for (int j = start[col_index]; j < end[col_index]; ++j) {
-        result.template at<T>(i, j) = blob.data_at(indices); ++indices[col_index];
+        indices[row_index] = i;
+        indices[col_index] = j;
+        result.template at<T>(i - start[row_index], j - start[col_index]) = blob.data_at(indices);
       }
-      ++indices[row_index];
     }
 
     return result;
@@ -131,7 +141,8 @@ namespace blob {
     for (int i = 0; i < static_cast<int>(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
-      if (found_slice_indices && found_row_indices && found_col_indices) { assert(start[i] == end[i]); continue; }
+      if (found_slice_indices && found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
+      if (start[i] + 1 == end[i]) { continue; }
 
       if (!found_slice_indices) { found_slice_indices = true; slice_index = i; continue; }
       if (!found_row_indices)   { found_row_indices   = true; row_index   = i; continue; }
@@ -139,20 +150,24 @@ namespace blob {
       found_col_indices = true; col_index = i;
     }
 
+    assert(found_slice_indices && found_row_indices && found_col_indices);
+
     std::vector<cv::Mat_<T>> result;
     result.reserve(end[slice_index] - start[slice_index]);
 
     cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
-    for (int i = start[slice_index]; i < end[slice_index]; ++i) {
-      std::vector<int> indices = start;
-      indices[slice_index] = i;
 
+    std::vector<int> indices = start;
+    for (int i = start[slice_index]; i < end[slice_index]; ++i) {
       for (int j = start[row_index]; j < end[row_index]; ++j) {
         for (int k = start[col_index]; k < end[col_index]; ++k) {
-          matrix.template at<T>(i, j) = blob.data_at(indices); ++indices[col_index];
+          indices[slice_index] = i;
+          indices[row_index]   = j;
+          indices[col_index]   = k;
+
+          matrix.template at<T>(j - start[row_index], k - start[col_index]) = blob.data_at(indices);
         }
       }
-      ++indices[row_index];
       result.push_back(matrix);
     }
 
