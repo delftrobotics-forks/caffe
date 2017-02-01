@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <random>
 
 namespace caffe {
 namespace proposal_layer {
@@ -156,8 +157,8 @@ namespace blob {
     result.reserve(end[slice_index] - start[slice_index]);
 
     std::vector<int> indices = start;
-      cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
     for (int i = start[slice_index]; i < end[slice_index]; ++i) {
+      cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
       for (int j = start[row_index]; j < end[row_index]; ++j) {
         for (int k = start[col_index]; k < end[col_index]; ++k) {
           indices[slice_index] = i;
@@ -271,8 +272,8 @@ namespace rectangle {
     std::vector<size_t> indices;
 
     for (size_t i = 0; i < rectangles.size(); ++i) {
-      cv::Point_<T> tl = rectangles[i].tl();
-      cv::Point_<T> br = rectangles[i].br();
+      cv::Point_<T> const & tl = rectangles[i].tl();
+      cv::Point_<T> const & br = rectangles[i].br();
 
       if (tl.x >= 0 && br.x <= dimensions.width && tl.y >= 0 && br.y <= dimensions.height) {
         indices.push_back(i);
@@ -353,6 +354,28 @@ namespace algorithms {
     }
 
     return indices;
+  }
+
+  /** \brief Sample elements from a vector, without replacement.
+   *  \param [in]  vector        Input vector.
+   *  \param [in]  num_samples   Number of samples.
+   *  \return Vector with sampled elements.
+   */
+  template <typename T>
+    std::vector<T> sampleWithoutReplacement(std::vector<T> const & vector, size_t const num_samples) {
+      assert(num_samples <= vector.size());
+
+    std::vector<size_t> indices(vector.size());
+    std::iota(indices.begin(), indices.end(), 0);
+
+    std::random_device random_device;
+    std::mt19937_64 generator(random_device());
+    std::shuffle(indices.begin(), indices.end(), generator);
+
+    std::vector<T> samples = select(vector, indices);
+    samples.resize(num_samples);
+
+    return samples;
   }
 }
 
