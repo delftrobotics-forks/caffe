@@ -10,6 +10,30 @@ namespace caffe {
 namespace proposal_layer {
 
 namespace blob {
+  /** \brief Extracts a vector of rectangles from a blob.
+   *  \param [in]  blob        Input blob.
+   *  \param [in]  col_index   Index of the column with the X coordinates.
+   *  \return Vector of rectangles containing data from the blob
+   */
+  template <typename T>
+  std::vector<cv::Rect_<T>> extractRectsFromMatrix(Blob<T> const & layer, int const col_index) {
+    assert(layer.shape().size() == 2 && col_index >= 0 && col_index + 3 < layer.shape()[1]);
+
+    std::vector<cv::Rect_<T>> rectangles;
+    rectangles.reserve(layer.shape()[0]);
+
+    for (int i = 0; i < layer.shape()[0]; ++i) {
+      T tl_x = layer.data_at({ i, col_index });
+      T tl_y = layer.data_at({ i, col_index + 1 });
+      T br_x = layer.data_at({ i, col_index + 2 });
+      T br_y = layer.data_at({ i, col_index + 3 });
+
+      rectangles.emplace_back(cv::Point_<T>{ tl_x, tl_y }, cv::Point_<T>{ br_x, br_y});
+    }
+
+    return rectangles;
+  }
+
   /** \brief Extracts a vector from a Caffe blob.
    *  \param [in]  blob    Input Caffe blob.
    *  \param [in]  start   Vector of start indices.
@@ -292,14 +316,14 @@ namespace utils {
 }
 
 namespace algorithms {
-  enum { COLUMNWISE, ROWWISE } SearchType;
+  enum SearchType { COLUMNWISE, ROWWISE };
   /** \brief Implements the argmax function on a matrix.
    *  \param [in]   source        Input matrix.
    *  \param [in]   search_type   Search type.
    *  \return Vector of indices.
    */
   template <typename T>
-  std::vector<size_t> argmax(cv::Mat const & source, SearchType const & search_type) {
+  std::vector<size_t> argmax(cv::Mat const & source, algorithms::SearchType const & search_type) {
     std::vector<size_t> indices;
     indices.reserve(search_type == SearchType::COLUMNWISE ? source.cols : source.rows);
 
