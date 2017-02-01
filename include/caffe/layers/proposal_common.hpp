@@ -306,5 +306,33 @@ namespace utils {
   }
 }
 
+namespace algorithms {
+  enum { COLUMNWISE, ROWWISE } SearchType;
+  /** \brief Implements the argmax function on a matrix.
+   *  \param [in]   source        Input matrix.
+   *  \param [in]   search_type   Search type.
+   *  \return Vector of indices.
+   */
+  template <typename T>
+  std::vector<size_t> argmax(cv::Mat const & source, SearchType const & search_type) {
+    std::vector<size_t> indices;
+    indices.reserve(search_type == SearchType::COLUMNWISE ? source.cols : source.rows);
+
+    cv::Point location;
+    for (size_t i = 0; i < indices.size(); ++i) {
+      if (search_type == SearchType::COLUMNWISE) {
+        cv::minMaxLoc(source.row(i), 0, 0, 0, &location);
+      } else {
+        cv::minMaxLoc(source.col(i), 0, 0, 0, &location);
+      }
+
+      indices.push_back(search_type == SearchType::COLUMNWISE ? location.y : location.x);
+    }
+
+    return indices;
+  }
+}
+
+
 }
 }
