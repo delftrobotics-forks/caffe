@@ -307,7 +307,7 @@ namespace utils {
 }
 
 namespace algorithms {
-  enum { COLUMNWISE, ROWWISE } SearchType;
+  enum SearchType { COLUMNWISE, ROWWISE };
   /** \brief Implements the argmax function on a matrix.
    *  \param [in]   source        Input matrix.
    *  \param [in]   search_type   Search type.
