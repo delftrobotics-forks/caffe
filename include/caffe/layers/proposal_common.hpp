@@ -10,26 +10,28 @@
 namespace caffe {
 namespace proposal_layer {
 
+enum SearchType { COLUMNWISE, ROWWISE };
+
 namespace blob {
   /** \brief Extracts a vector of rectangles from a blob.
    *  \param [in]  blob        Input blob.
    *  \param [in]  col_index   Index of the column with the X coordinates.
    *  \return Vector of rectangles containing data from the blob
    */
-  template <typename T>
-  std::vector<cv::Rect_<T>> extractRectsFromMatrix(Blob<T> const & layer, int const col_index) {
+  template <typename A, typename B>
+  std::vector<cv::Rect_<A>> extractRectsFromMatrix(Blob<B> const & layer, int const col_index) {
     assert(layer.shape().size() == 2 && col_index >= 0 && col_index + 3 < layer.shape()[1]);
 
-    std::vector<cv::Rect_<T>> rectangles;
+    std::vector<cv::Rect_<A>> rectangles;
     rectangles.reserve(layer.shape()[0]);
 
     for (int i = 0; i < layer.shape()[0]; ++i) {
-      T tl_x = layer.data_at({ i, col_index });
-      T tl_y = layer.data_at({ i, col_index + 1 });
-      T br_x = layer.data_at({ i, col_index + 2 });
-      T br_y = layer.data_at({ i, col_index + 3 });
+      A tl_x = layer.data_at({i, col_index});
+      A tl_y = layer.data_at({i, col_index + 1});
+      A br_x = layer.data_at({i, col_index + 2});
+      A br_y = layer.data_at({i, col_index + 3});
 
-      rectangles.emplace_back(cv::Point_<T>{ tl_x, tl_y }, cv::Point_<T>{ br_x, br_y});
+      rectangles.emplace_back(cv::Point_<A>{tl_x, tl_y}, cv::Point_<A>{br_x, br_y});
     }
 
     return rectangles;
@@ -41,8 +43,8 @@ namespace blob {
    *  \param [in]  end     Vector of end indices.
    *  \return Vector of elements from the blob.
    */
-  template <typename T>
-  std::vector<T> extractVector(Blob<T>          const & blob,
+  template <typename A, typename B>
+  std::vector<A> extractVector(Blob<B>          const & blob,
                                std::vector<int> const & start,
                                std::vector<int> const & end)
   {
@@ -62,13 +64,13 @@ namespace blob {
 
     assert(found_indices);
 
-    std::vector<T> result;
+    std::vector<A> result;
     result.reserve(end[index] - start[index]);
 
     std::vector<int> indices = start;
     for (int i = start[index]; i < end[index]; ++i) {
       indices[index] = i;
-      result.push_back(blob.data_at(indices));
+      result.push_back(static_cast<A>(blob.data_at(indices)));
     }
 
     return result;
@@ -80,8 +82,8 @@ namespace blob {
    *  \param [in]  end     Vector of end indices.
    *  \return Matrix with the elements from the blob.
    */
-  template <typename T>
-  cv::Mat_<T> extractMatrix(Blob<T>          const & blob,
+  template <typename A, typename B>
+  cv::Mat_<A> extractMatrix(Blob<B>          const & blob,
                             std::vector<int> const & start,
                             std::vector<int> const & end)
   {
@@ -105,13 +107,13 @@ namespace blob {
 
     assert(found_row_indices && found_col_indices);
 
-    cv::Mat_<T> result(end[row_index] - start[row_index], end[col_index] - start[col_index]);
+    cv::Mat_<A> result(end[row_index] - start[row_index], end[col_index] - start[col_index]);
     std::vector<int> indices = start;
     for (int i = start[row_index]; i < end[row_index]; ++i) {
       for (int j = start[col_index]; j < end[col_index]; ++j) {
         indices[row_index] = i;
         indices[col_index] = j;
-        result.template at<T>(i - start[row_index], j - start[col_index]) = blob.data_at(indices);
+        result.template at<A>(i - start[row_index], j - start[col_index]) = blob.data_at(indices);
       }
     }
 
@@ -124,8 +126,8 @@ namespace blob {
    *  \param [in]  end     Vector of end indices.
    *  \return Vector of matrices containing elements from the blob.
    */
-  template <typename T>
-  std::vector<cv::Mat_<T>> extractVectorOfMatrices(Blob<T>          const & blob,
+  template <typename A, typename B>
+  std::vector<cv::Mat_<A>> extractVectorOfMatrices(Blob<B>          const & blob,
                                                    std::vector<int> const & start,
                                                    std::vector<int> const & end)
   {
@@ -153,19 +155,19 @@ namespace blob {
 
     assert(found_slice_indices && found_row_indices && found_col_indices);
 
-    std::vector<cv::Mat_<T>> result;
+    std::vector<cv::Mat_<A>> result;
     result.reserve(end[slice_index] - start[slice_index]);
 
     std::vector<int> indices = start;
     for (int i = start[slice_index]; i < end[slice_index]; ++i) {
-      cv::Mat_<T> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
+      cv::Mat_<A> matrix(end[row_index] - start[row_index], end[col_index] - start[col_index]);
       for (int j = start[row_index]; j < end[row_index]; ++j) {
         for (int k = start[col_index]; k < end[col_index]; ++k) {
           indices[slice_index] = i;
           indices[row_index]   = j;
           indices[col_index]   = k;
 
-          matrix.template at<T>(j - start[row_index], k - start[col_index]) = blob.data_at(indices);
+          matrix.template at<A>(j - start[row_index], k - start[col_index]) = blob.data_at(indices);
         }
       }
       result.push_back(matrix);
@@ -173,7 +175,6 @@ namespace blob {
 
     return result;
   }
-
 }
 
 namespace rectangle {
@@ -310,10 +311,11 @@ namespace utils {
    *  \param [in]   indices     Vector of indices.
    *  \return Vector with the selected elements.
    */
-  template <typename T>
-  std::vector<T> select(std::vector<T> const & vector, std::vector<size_t> const & indices) {
-    std::vector<T> result;
-    std::transform(indices.begin(), indices.end(), std::back_inserter(result), [vector](size_t i) { return vector[i]; });
+  template <typename A, typename B>
+  std::vector<A> select(std::vector<A> const & vector, std::vector<B> const & indices) {
+    std::vector<A> result;
+    result.reserve(indices.size());
+    std::transform(indices.begin(), indices.end(), std::back_inserter(result), [vector](B i) { return vector[i]; });
     return result;
   }
 
@@ -331,29 +333,62 @@ namespace utils {
 }
 
 namespace algorithms {
-  enum SearchType { COLUMNWISE, ROWWISE };
+
   /** \brief Implements the argmax function on a matrix.
    *  \param [in]   source        Input matrix.
    *  \param [in]   search_type   Search type.
    *  \return Vector of indices.
    */
   template <typename T>
-  std::vector<size_t> argmax(cv::Mat const & source, algorithms::SearchType const & search_type) {
-    std::vector<size_t> indices;
-    indices.reserve(search_type == SearchType::COLUMNWISE ? source.cols : source.rows);
+  std::vector<int> argmax(cv::Mat_<T> const & source, SearchType const & search_type) {
+    std::vector<int> indices;
+    indices.reserve(search_type == SearchType::COLUMNWISE ? source.rows : source.cols);
 
     cv::Point location;
-    for (size_t i = 0; i < indices.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(indices.capacity()); ++i) {
       if (search_type == SearchType::COLUMNWISE) {
         cv::minMaxLoc(source.row(i), 0, 0, 0, &location);
       } else {
         cv::minMaxLoc(source.col(i), 0, 0, 0, &location);
       }
 
-      indices.push_back(search_type == SearchType::COLUMNWISE ? location.y : location.x);
+      indices.push_back(search_type == SearchType::COLUMNWISE ? location.x : location.y);
     }
 
     return indices;
+  }
+
+  /** \brief Implements the max function on a matrix.
+   *  \param [out]  values        Vector with the max values.
+   *  \param [out]  indices       Vector with the indices of the max values.
+   *  \param [in]   source        Input matrix.
+   *  \param [in]   search_type   Search type.
+   *  \return Vector of max values.
+   */
+  template <typename T>
+  void max(std::vector<T> & values, std::vector<int> & indices, cv::Mat_<T> const & source, SearchType const & search_type) {
+    indices = argmax(source, search_type);
+    values.reserve(indices.size());
+
+    for (int i = 0; i < static_cast<int>(indices.size()); ++i) {
+      values.push_back(search_type == SearchType::COLUMNWISE ? source.template at<T>(i, indices[i]) :
+                                                               source.template at<T>(indices[i], i));
+    }
+  }
+
+  /** \brief Implements the max function on a matrix.
+   *  \param [in]   source        Input matrix.
+   *  \param [in]   search_type   Search type.
+   *  \return Vector of max values.
+   */
+  template <typename T>
+  std::vector<T> max(cv::Mat_<T> const & source, SearchType const & search_type) {
+    std::vector<int> indices;
+    std::vector<T>   values;
+
+    max(values, indices, source, search_type);
+
+    return values;
   }
 
   /** \brief Sample elements from a vector, without replacement.
