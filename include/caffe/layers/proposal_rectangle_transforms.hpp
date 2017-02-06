@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 
+namespace caffe {
 namespace proposal_layer {
 namespace algorithms {
     /** \brief Expands the target data into the 4-of-4*K representation used
@@ -92,5 +93,6 @@ namespace algorithms {
     return targets;
   }
 
+}
 }
 }

@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 
+namespace caffe {
 namespace proposal_layer {
 namespace algorithms {
 
@@ -44,5 +45,6 @@ namespace algorithms {
     return regression >= threshold;
   }
 
+}
 }
 }
