@@ -1,11 +1,11 @@
 #pragma once
 
 #include "caffe/blob.hpp"
+#include "caffe/util/rng.hpp"
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
 #include <numeric>
-#include <random>
 
 namespace caffe {
 namespace proposal_layer {
@@ -486,18 +486,15 @@ namespace algorithms {
    *  \return Vector with sampled elements.
    */
   template <typename T>
-    std::vector<T> sampleWithoutReplacement(std::vector<T> const & vector, size_t const num_samples) {
-      assert(num_samples <= vector.size());
+  std::vector<T> sampleWithoutReplacement(std::vector<T> const & vector, size_t const num_samples) {
+    assert(num_samples <= vector.size());
 
     std::vector<size_t> indices(vector.size());
     std::iota(indices.begin(), indices.end(), 0);
 
-    std::random_device random_device;
-    std::mt19937_64 generator(random_device());
-    std::shuffle(indices.begin(), indices.end(), generator);
+    caffe::shuffle(indices.begin(), indices.begin() + num_samples);
 
     std::vector<T> samples = select(vector, indices);
-    samples.resize(num_samples);
 
     return samples;
   }
