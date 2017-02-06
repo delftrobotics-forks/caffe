@@ -391,7 +391,7 @@ message LayerParameter {
   optional PowerParameter power_param = 122;
   optional PReLUParameter prelu_param = 131;
   optional ProposalParameter proposal_param = 8266713;
-  optional ProposalTargetParameter proposal_target_param = 8266714;
+  optional ProposalTargetParameter proposal_target_param = 8266715;
   optional PythonParameter python_param = 130;
   optional RecurrentParameter recurrent_param = 146;
   optional ReductionParameter reduction_param = 136;
