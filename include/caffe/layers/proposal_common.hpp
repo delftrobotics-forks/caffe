@@ -145,7 +145,6 @@ namespace blob {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
       if (found_slice_indices && found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
-      if (start[i] + 1 == end[i]) { continue; }
 
       if (!found_slice_indices) { found_slice_indices = true; slice_index = i; continue; }
       if (!found_row_indices)   { found_row_indices   = true; row_index   = i; continue; }
