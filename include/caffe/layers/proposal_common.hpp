@@ -434,7 +434,7 @@ namespace utils {
 
     std::vector<T> ret(count, fill);
     for (size_t i = 0; i < inds.size(); ++i) {
-      ret[i] = data[inds[i]];
+      ret[inds[i]] = data[i];
     }
 
     return ret;
