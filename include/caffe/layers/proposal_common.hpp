@@ -419,6 +419,25 @@ namespace utils {
     std::stable_sort(indices.begin(), indices.end(), [&vector](size_t i, size_t j) { return vector[i] >= vector[j]; });
     return indices;
   }
+
+  /** \brief Unmap a subset of item (data) back to the original set of items (of size count).
+   *  \param [in] data  Input data.
+   *  \param [in] count Size of output data.
+   *  \param [in] inds  Vector of indices in data to copy.
+   *  \param [in] fill  Value to use to fill the empty spots.
+   *  \return Vector where entries from data is copied from based on indices in inds.
+   */
+  template <typename T>
+  std::vector<T> unmap(std::vector<T> const & data, size_t count, std::vector<size_t> const & inds, T fill) {
+    assert(inds.size() <= count);
+
+    std::vector<T> ret(count, fill);
+    for (size_t i = 0; i < inds.size(); ++i) {
+      ret[i] = data[inds[i]];
+    }
+
+    return ret;
+  }
 }
 
 namespace algorithms {
