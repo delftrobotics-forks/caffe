@@ -175,6 +175,41 @@ namespace blob {
 
     return result;
   }
+
+  /** \brief Writes the information contained in an OpenCV matrix to a blob.
+   *  \param [out]  blob     Caffe blob.
+   *  \param [in]   matrix   OpenCV matrix.
+   */
+  template <typename A, typename B>
+  void writeMatrix(Blob<A> & blob, cv::Mat_<B> const & matrix) {
+    blob.Reshape({matrix.rows, matrix.cols});
+    A * data = blob.mutable_cpu_data();
+    for (int i = 0; i < matrix.total(); ++i) { data[i] = matrix.template at<B>(i); }
+  }
+
+  /** \brief Writes the information contained in a vector to a blob.
+   *  \param [out]  blob   Caffe blob.
+   *  \param [in]   vec    Data vector.
+   */
+  template <typename A, typename B>
+  void writeVector(Blob<A> & blob, std::vector<B> const & vec) {
+    blob.Reshape({static_cast<int>(vec.size())});
+    A * data = blob.mutable_cpu_data();
+    for (size_t i = 0; i < vec.size(); ++i) { data[i] = vec[i]; }
+  }
+
+  /** \brief Writes the information contained in a set to a blob.
+   *  \param [out]  blob   Caffe blob.
+   *  \param [in]   dset   Data set.
+   */
+  template <typename A, typename B>
+  void writeSet(Blob<A> & blob, std::set<B> const & dset) {
+    blob.Reshape({static_cast<int>(dset.size())});
+    A * data = blob.mutable_cpu_data();
+
+    int i = 0;
+    for (auto const & elem : dset) { data[i++] = elem; }
+  }
 }
 
 namespace rectangle {
