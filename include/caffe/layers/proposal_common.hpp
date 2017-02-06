@@ -1,11 +1,11 @@
 #pragma once
 
 #include "caffe/blob.hpp"
+#include "caffe/util/rng.hpp"
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
 #include <numeric>
-#include <random>
 
 namespace caffe {
 namespace proposal_layer {
@@ -145,7 +145,6 @@ namespace blob {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
       if (found_slice_indices && found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
-      if (start[i] + 1 == end[i]) { continue; }
 
       if (!found_slice_indices) { found_slice_indices = true; slice_index = i; continue; }
       if (!found_row_indices)   { found_row_indices   = true; row_index   = i; continue; }
@@ -420,6 +419,25 @@ namespace utils {
     std::stable_sort(indices.begin(), indices.end(), [&vector](size_t i, size_t j) { return vector[i] >= vector[j]; });
     return indices;
   }
+
+  /** \brief Unmap a subset of item (data) back to the original set of items (of size count).
+   *  \param [in] data  Input data.
+   *  \param [in] count Size of output data.
+   *  \param [in] inds  Vector of indices in data to copy.
+   *  \param [in] fill  Value to use to fill the empty spots.
+   *  \return Vector where entries from data is copied from based on indices in inds.
+   */
+  template <typename T>
+  std::vector<T> unmap(std::vector<T> const & data, size_t count, std::vector<size_t> const & inds, T fill) {
+    assert(inds.size() <= count);
+
+    std::vector<T> ret(count, fill);
+    for (size_t i = 0; i < inds.size(); ++i) {
+      ret[inds[i]] = data[i];
+    }
+
+    return ret;
+  }
 }
 
 namespace algorithms {
@@ -486,18 +504,15 @@ namespace algorithms {
    *  \return Vector with sampled elements.
    */
   template <typename T>
-    std::vector<T> sampleWithoutReplacement(std::vector<T> const & vector, size_t const num_samples) {
-      assert(num_samples <= vector.size());
+  std::vector<T> sampleWithoutReplacement(std::vector<T> const & vector, size_t const num_samples) {
+    assert(num_samples <= vector.size());
 
     std::vector<size_t> indices(vector.size());
     std::iota(indices.begin(), indices.end(), 0);
 
-    std::random_device random_device;
-    std::mt19937_64 generator(random_device());
-    std::shuffle(indices.begin(), indices.end(), generator);
+    caffe::shuffle(indices.begin(), indices.begin() + num_samples);
 
     std::vector<T> samples = select(vector, indices);
-    samples.resize(num_samples);
 
     return samples;
   }
