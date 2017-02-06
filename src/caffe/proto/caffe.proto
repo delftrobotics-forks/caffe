@@ -383,6 +383,7 @@ message LayerParameter {
   optional InputParameter input_param = 143;
   optional LogParameter log_param = 134;
   optional LRNParameter lrn_param = 118;
+  optional MaskProposalParameter mask_proposal_param = 8266714;
   optional MemoryDataParameter memory_data_param = 119;
   optional MVNParameter mvn_param = 120;
   optional ParameterParameter parameter_param = 145;
@@ -861,6 +862,12 @@ message LRNParameter {
     CUDNN = 2;
   }
   optional Engine engine = 6 [default = DEFAULT];
+}
+
+message MaskProposalParameter {
+  optional int32 mask_size = 1 [default = 21];
+  optional float train_fg_seg_thresh = 2 [default = 0.5];
+  optional float binarize_thresh = 3 [default = 0.4];
 }
 
 message MemoryDataParameter {
