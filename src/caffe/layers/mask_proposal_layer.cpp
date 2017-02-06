@@ -153,10 +153,16 @@ void MaskProposalLayer<Dtype>::ForwardTest_cpu(std::vector<Blob<Dtype>*> const &
                                                std::vector<Blob<Dtype>*> const & top,
                                                cv::Mat & resized_mask_pred)
 {
-
-  //ToDo Implement forward
+  std::cerr << "CURRENTLY IN FORWARD TEST CPU" << std::endl;
+  using namespace proposal_layer;
+  auto mask_pred     = blob::extractMatrix<Dtype>(*bottom[0], { 0, 0 }, bottom[0]->shape());
+  auto num_mask_pred = mask_pred.rows;
+  for (int i = 0; i < num_mask_pred; ++i) {
+    cv::Mat resized = mask_pred.row(i).reshape(1, parameters_.mask_size());
+    resized_mask_pred.push_back(resized);
+  }
+  std::cerr << "DONE" << std::endl;
 }
-
 
 
 /** \brief Implements the backward propagation function.
