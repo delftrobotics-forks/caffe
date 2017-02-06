@@ -223,6 +223,19 @@ namespace rectangle {
     return { r.x / scale, r.y / scale, r.width / scale, r.height / scale };
   }
 
+  /** \brief Scales a vector of rectangles by a given factor.
+   *  \param [in]   rects   Vector of rectangles.
+   *  \param [in]   scale   Scaling factor.
+   *  \return Vector of scaled rectangles.
+   */
+  template <typename T>
+  std::vector<cv::Rect_<T>> scaledRectangles(std::vector<cv::Rect_<T>> const & rects, float const scale) {
+    std::vector<cv::Rect_<T>> scaled;
+    scaled.reserve(rects.size());
+    for (auto const & r : rects) { scaled.emplace_back(r.x / scale, r.y / scale, r.width / scale, r.height / scale); }
+    return scaled;
+  }
+
   /** \brief Creates a rectangle, given its center and dimensions.
    *  \param [in]   x        X coordinate of the center.
    *  \param [in]   y        Y coordinate of the center.
@@ -325,6 +338,31 @@ namespace rectangle {
 }
 
 namespace utils {
+  /** \brief Convert set to vector.
+   *  \param [in]  s   Input set.
+   *  \return Vector with elements from the set.
+   */
+  template <typename T>
+  std::set<T> compareLower(std::set<T> const & dset, T const & value) {
+    std::set<T> result;
+    for (auto const & elem : dset) { if (elem < value) { result.insert(elem); } }
+    return result;
+  }
+
+  /** \brief Convert set to vector.
+   *  \param [in]  s   Input set.
+   *  \return Vector with elements from the set.
+   */
+  template <typename A, typename B>
+  std::vector<A> convert(std::set<B> const & s) { return std::vector<A>(s.begin(), s.end()); }
+
+  /** \brief Convert vector to set.
+   *  \param [in]  v   Input vector.
+   *  \return Set with elements from the vector.
+   */
+  template <typename A, typename B>
+  std::set<A> convert(std::vector<B> const & v) { return std::set<A>(v.begin(), v.end()); }
+
   /** \brief Outputs the elements of a given vector.
    *  \param [in]   vector      Input vector.
    */
@@ -349,8 +387,25 @@ namespace utils {
   template <typename A, typename B>
   std::vector<A> select(std::vector<A> const & vector, std::vector<B> const & indices) {
     std::vector<A> result;
+
     result.reserve(indices.size());
-    std::transform(indices.begin(), indices.end(), std::back_inserter(result), [vector](B i) { return vector[i]; });
+    for (auto const & i : indices) { result.push_back(vector[i]); }
+
+    return result;
+  }
+
+  /** \brief Selects elements from a vector, based on a given set of indices.
+   *  \param [in]   vector      Input vector.
+   *  \param [in]   indices     Set of indices.
+   *  \return Vector with the selected elements.
+   */
+  template <typename A, typename B>
+  std::vector<A> select(std::vector<A> const & vector, std::set<B> const & indices) {
+    std::vector<A> result;
+
+    result.reserve(indices.size());
+    for (auto const & i : indices) { result.push_back(vector[i]); }
+
     return result;
   }
 
@@ -368,7 +423,6 @@ namespace utils {
 }
 
 namespace algorithms {
-
   /** \brief Implements the argmax function on a matrix.
    *  \param [in]   source        Input matrix.
    *  \param [in]   search_type   Search type.
