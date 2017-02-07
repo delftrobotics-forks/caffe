@@ -513,7 +513,7 @@ namespace algorithms {
 
     caffe::shuffle(indices.begin(), indices.begin() + num_samples);
 
-    std::vector<T> samples = select(vector, indices);
+    std::vector<T> samples = utils::select(vector, indices);
 
     return samples;
   }
