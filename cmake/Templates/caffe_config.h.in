@@ -1,19 +1,9 @@
-/* Sources directory */
-#define SOURCE_FOLDER "${PROJECT_SOURCE_DIR}"
+#ifndef CAFFE_CONFIG_H_
+#define CAFFE_CONFIG_H_
 
-/* Binaries directory */
-#define BINARY_FOLDER "${PROJECT_BINARY_DIR}"
+/* Layer module options */
+#define DEFAULT_LAYER_PATH "${DEFAULT_LAYER_PATH}"
+#define LAYER_MODULE_PREFIX "${LAYER_MODULE_PREFIX}"
+#define LAYER_MODULE_SUFFIX "${LAYER_MODULE_SUFFIX}"
 
-/* Test device */
-#define CUDA_TEST_DEVICE ${CUDA_TEST_DEVICE}
-
-/* Temporary (TODO: remove) */
-#if 1
-  #define CMAKE_SOURCE_DIR SOURCE_FOLDER "/src/"
-  #define EXAMPLES_SOURCE_DIR BINARY_FOLDER "/examples/"
-  #define CMAKE_EXT ".gen.cmake"
-#else
-  #define CMAKE_SOURCE_DIR "src/"
-  #define EXAMPLES_SOURCE_DIR "examples/"
-  #define CMAKE_EXT ""
-#endif
+#endif   // CAFFE_CONFIG_H_
