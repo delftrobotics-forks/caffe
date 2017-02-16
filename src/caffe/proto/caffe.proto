@@ -359,6 +359,7 @@ message LayerParameter {
   // engine parameter for selecting the implementation.
   // The default for the engine is set by the ENGINE switch at compile-time.
   optional AccuracyParameter accuracy_param = 102;
+  optional AnchorTargetParameter anchor_target_param = 8266716;
   optional ArgMaxParameter argmax_param = 103;
   optional BatchNormParameter batch_norm_param = 139;
   optional BiasParameter bias_param = 141;
@@ -480,6 +481,26 @@ message AccuracyParameter {
 
   // If specified, ignore instances with the given label.
   optional int32 ignore_label = 3;
+}
+
+message AnchorTargetParameter {
+  optional uint32 allowed_border                 = 1 [default = 0];
+  optional uint32 feat_stride                    = 2 [default = 16];
+  optional bool clobber_positives                = 3 [default = false];
+  optional float negative_overlap                = 4 [default = 0.3];
+  optional float positive_overlap                = 5 [default = 0.7];
+  optional uint32 batchsize                      = 6 [default = 256];
+  optional float fg_fraction                     = 7 [default = 0.5];
+  optional bool mix_index                        = 8 [default = true];
+  optional float positive_weight                 = 9 [default = -1.0];
+  optional BboxInsideWeights bbox_inside_weights = 10;
+}
+
+message BboxInsideWeights {
+  optional float x      = 1 [default = 1.0];
+  optional float y      = 2 [default = 1.0];
+  optional float width  = 3 [default = 1.0];
+  optional float height = 4 [default = 1.0];
 }
 
 message ArgMaxParameter {
