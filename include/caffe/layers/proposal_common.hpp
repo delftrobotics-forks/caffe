@@ -3,6 +3,7 @@
 #include "caffe/blob.hpp"
 #include "caffe/util/rng.hpp"
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/mat.inl.hpp>
 
 #include <algorithm>
 #include <numeric>
@@ -53,7 +54,7 @@ namespace blob {
     bool found_indices = false;
     int index          = 0;
 
-    for (int i = 0; i < static_cast<int>(start.size()); ++i) {
+    for (int i = 0; i < int(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
       if (found_indices) { assert(start[i] + 1 == end[i]); continue; }
@@ -70,18 +71,12 @@ namespace blob {
     std::vector<int> indices = start;
     for (int i = start[index]; i < end[index]; ++i) {
       indices[index] = i;
-      result.push_back(static_cast<A>(blob.data_at(indices)));
+      result.push_back(A(blob.data_at(indices)));
     }
 
     return result;
   }
 
-  /** \brief Extracts a matrix from a Caffe blob.
-   *  \param [in]  blob    Input Caffe blob.
-   *  \param [in]  start   Vector of start indices.
-   *  \param [in]  end     Vector of end indices.
-   *  \return Matrix with the elements from the blob.
-   */
   template <typename A, typename B>
   cv::Mat_<A> extractMatrix(Blob<B>          const & blob,
                             std::vector<int> const & start,
@@ -98,10 +93,10 @@ namespace blob {
     for (int i = 0; i < static_cast<int>(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
-      if (found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
-      if (start[i] + 1 == end[i])                 { continue; }
+      if (found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue;  }
+      if (start[i] + 1 == end[i])                 { continue;  }
 
-      if (!found_row_indices) { found_row_indices = true; row_index = i; continue; }
+      if (!found_row_indices) { found_row_indices = true; row_index = i; continue;  }
       found_col_indices = true; col_index = i;
     }
 
@@ -119,6 +114,57 @@ namespace blob {
 
     return result;
   }
+
+
+  /** \brief Extracts an N-dimensional matrix from a Caffe blob.
+   *  \param [in]  blob    Input Caffe blob.
+   *  \param [in]  start   Vector of start indices.
+   *  \param [in]  end     Vector of end indices.
+   *  \return Matrix with the elements from the blob.
+   */
+  template <typename T>
+  cv::Mat extract(Blob<T>          const & blob,
+                  std::vector<int> const & start,
+                  std::vector<int> const & end)
+  {
+    CHECK(start.size() >= 2 && start.size() <= 4);
+    CHECK(start.size() == end.size() && start.size() == blob.shape().size());
+    cv::Mat data(blob.shape().size(), &blob.shape()[0], cv::DataType<T>::type, const_cast<T*>(blob.cpu_data()));
+
+    cv::Range ranges[3];
+    for (size_t i = 0; i < start.size(); ++i) {
+      CHECK(start[i] >= 0 && end[i] <= blob.shape(i) && start[i] < end[i]);
+      ranges[i] = cv::Range(start[i], end[i]);
+    }
+
+    return data(ranges);
+  }
+
+  /** \brief Extracts a vector of matrices from a Caffe blob.
+   *  \param [in]  blob    Input Caffe blob.
+   *  \param [in]  start   Vector of start indices.
+   *  \param [in]  end     Vector of end indices.
+   *  \return Vector of matrices containing elements from the blob.
+   */
+  //template <typename T>
+  //std::vector<cv::Mat> extract(Blob<T>          const & blob,
+                               //std::vector<int> const & start,
+                               //std::vector<int> const & end)
+  //{
+    //CHECK_GE(start.size(), 2);
+    //CHECK(start.size() == end.size() && start.size() == blob.shape().size());
+
+    //cv::Mat data(blob.shape().size(), &blob.shape()[0], cv::DataType<T>::type,
+                 //const_cast<T*>(blob.cpu_data()));
+
+    //std::vector<cv::Range> ranges;
+    //for (size_t i = 0; i < start.size(); ++i) {
+      //CHECK(start[i] >= 0 && end[i] <= blob.shape(i) && start[i] < end[i]);
+      //ranges.emplace_back(start[i], end[i]);
+    //}
+
+    //return cv::Mat(data, &ranges[0]);
+  //}
 
   /** \brief Extracts a vector of matrices from a Caffe blob.
    *  \param [in]  blob    Input Caffe blob.
@@ -141,7 +187,7 @@ namespace blob {
     int row_index   = 0;
     int col_index   = 0;
 
-    for (int i = 0; i < static_cast<int>(start.size()); ++i) {
+    for (int i = 0; i < int(start.size()); ++i) {
       assert(start[i] >= 0 && end[i] <= blob.shape()[i] && start[i] < end[i]);
 
       if (found_slice_indices && found_row_indices && found_col_indices) { assert(start[i] + 1 == end[i]); continue; }
@@ -192,7 +238,7 @@ namespace blob {
    */
   template <typename A, typename B>
   void writeVector(Blob<A> & blob, std::vector<B> const & vec) {
-    blob.Reshape({static_cast<int>(vec.size())});
+    blob.Reshape({int(vec.size())});
     A * data = blob.mutable_cpu_data();
     for (size_t i = 0; i < vec.size(); ++i) { data[i] = vec[i]; }
   }
@@ -203,7 +249,7 @@ namespace blob {
    */
   template <typename A, typename B>
   void writeSet(Blob<A> & blob, std::set<B> const & dset) {
-    blob.Reshape({static_cast<int>(dset.size())});
+    blob.Reshape({int(dset.size())});
     A * data = blob.mutable_cpu_data();
 
     int i = 0;
@@ -289,6 +335,39 @@ namespace rectangle {
     return overlaps;
   }
 
+  /** \brief Computes intersection over union for two given sets of rectangles.
+   *  \param  r   Input rectangles.
+   *  \param  q   Input (query) rectangles.
+   *  \return Intersection over union for the given pairs of rectangles.
+   */
+  template <typename T>
+  cv::Mat intersectionOverUnion(cv::Mat const & r, cv::Mat const & q) {
+    CHECK_EQ(r.type(), q.type());
+    cv::Mat overlaps = cv::Mat::zeros(r.rows, q.rows, r.type());
+
+    for (int k = 0; k < q.rows; ++k) {
+      T box_area = (q.at<T>(k, 2) - q.at<T>(k, 0) + 1) * (q.at<T>(k, 3) - q.at<T>(k, 1) + 1);
+      for (int n = 0; n < r.rows; ++n) {
+        T iw = std::min(r.at<T>(n, 2), q.at<T>(k, 2)) - std::max(r.at<T>(n, 0), q.at<T>(k, 0)) + 1;
+
+        if (iw > 0) {
+          T ih = std::min(r.at<T>(n, 3), q.at<T>(k, 3)) - std::max(r.at<T>(n, 1), q.at<T>(k, 1)) + 1;
+
+          if (ih > 0) {
+            T ua = (r.at<T>(n, 2) - r.at<T>(n, 0) + 1) * (r.at<T>(n, 3) - r.at<T>(n, 1) + 1) + box_area - iw * ih;
+            overlaps.at<T>(n, k) = iw * ih / ua;
+          }
+        }
+
+        //cv::Rect_<T> overlap = q[k] & r[n];
+        //overlaps.template at<T>(n, k) = overlap.area() / (r[n].area() + q[k].area() - overlap.area());
+      }
+    }
+
+    return overlaps;
+  }
+
+
   /** \brief Filters out rectangles with width or height lower than a given threshold.
    *  \param [in]  rectangles   Vector of rectangles.
    *  \param [in]  min_size     Threshold to be used for filtering.
@@ -328,7 +407,7 @@ namespace rectangle {
       }
 
       if (auto_clip) {
-        rectangles[i] &= cv::Rect_<T>(0, 0, dimensions.width, dimensions.height);
+        rectangles[i] &= cv::Rect_<T>(0, 0, T(dimensions.width), T(dimensions.height));
       }
     }
 
@@ -452,7 +531,7 @@ namespace algorithms {
     indices.reserve(search_type == SearchType::COLUMNWISE ? source.rows : source.cols);
 
     cv::Point location;
-    for (int i = 0; i < static_cast<int>(indices.capacity()); ++i) {
+    for (int i = 0; i < int(indices.capacity()); ++i) {
       if (search_type == SearchType::COLUMNWISE) {
         cv::minMaxLoc(source.row(i), 0, 0, 0, &location);
       } else {
@@ -477,7 +556,7 @@ namespace algorithms {
     indices = argmax(source, search_type);
     values.reserve(indices.size());
 
-    for (int i = 0; i < static_cast<int>(indices.size()); ++i) {
+    for (int i = 0; i < int(indices.size()); ++i) {
       values.push_back(search_type == SearchType::COLUMNWISE ? source.template at<T>(i, indices[i]) :
                                                                source.template at<T>(indices[i], i));
     }

@@ -80,68 +80,68 @@ void MaskProposalLayer<Dtype>::ForwardTrain_cpu(std::vector<Blob<Dtype>*> const 
                                                 std::vector<Blob<Dtype>*> const & top,
                                                 std::vector<cv::Mat>            & resized_mask_pred)
 {
-  auto t1 = std::chrono::steady_clock::now();
+  //auto t1 = std::chrono::steady_clock::now();
 
-  using namespace proposal_layer;
-  auto mask_pred     = blob::extractMatrix<Dtype>(*bottom[0], { 0, 0 }, bottom[0]->shape());
-  auto gt_masks      = blob::extractVectorOfMatrices<Dtype>(*bottom[1], { 0, 0, 0 }, bottom[1]->shape());
-  auto gt_masks_info = blob::extractMatrix<Dtype>(*bottom[2], { 0, 0 }, bottom[2]->shape());
-  auto num_mask_pred = mask_pred.rows;
+  //using namespace proposal_layer;
+  //auto mask_pred     = blob::extractMatrix<Dtype>(*bottom[0], { 0, 0 }, bottom[0]->shape());
+  //auto gt_masks      = blob::extractVectorOfMatrices<Dtype>(*bottom[1], { 0, 0, 0 }, bottom[1]->shape());
+  //auto gt_masks_info = blob::extractMatrix<Dtype>(*bottom[2], { 0, 0 }, bottom[2]->shape());
+  //auto num_mask_pred = mask_pred.rows;
 
-  auto t2 = std::chrono::steady_clock::now();
+  //auto t2 = std::chrono::steady_clock::now();
 
-  cv::Mat_<Dtype> top_label = cv::Mat_<Dtype>::zeros(gt_masks_info.rows, 1);
+  //cv::Mat_<Dtype> top_label = cv::Mat_<Dtype>::zeros(gt_masks_info.rows, 1);
 
-  for (std::size_t i = 0; i < num_mask_pred; ++i) {
-    if (gt_masks_info.template at<Dtype>(i, 0) == -1) {
-      top_label.template at<Dtype>(i, 0) = 0;
-      continue;
-    } else {
-      auto info = gt_masks_info.row(i);
-      auto gt_mask_intermediate = gt_masks.at(int(info.template at<Dtype>(0)));
-      auto gt_mask = gt_mask_intermediate(cv::Rect(0, 0, info.template at<Dtype>(2), info.template at<Dtype>(1)));
-      auto ex_mask = mask_pred.row(i).reshape(0, parameters_.mask_size());
-      auto ex_box = info(cv::Rect(4, 0, 4, 1));
-      auto gt_box = info(cv::Rect(8, 0, 4, 1));
-      cv::resize(ex_mask, ex_mask, cv::Size(ex_box.template at<Dtype>(2) -  ex_box.template at<Dtype>(0) + 1,
-                                            ex_box.template at<Dtype>(3) -  ex_box.template at<Dtype>(1) + 1));
+  //for (std::size_t i = 0; i < num_mask_pred; ++i) {
+    //if (gt_masks_info.template at<Dtype>(i, 0) == -1) {
+      //top_label.template at<Dtype>(i, 0) = 0;
+      //continue;
+    //} else {
+      //auto info = gt_masks_info.row(i);
+      //auto gt_mask_intermediate = gt_masks.at(int(info.template at<Dtype>(0)));
+      //auto gt_mask = gt_mask_intermediate(cv::Rect(0, 0, info.template at<Dtype>(2), info.template at<Dtype>(1)));
+      //auto ex_mask = mask_pred.row(i).reshape(0, parameters_.mask_size());
+      //auto ex_box = info(cv::Rect(4, 0, 4, 1));
+      //auto gt_box = info(cv::Rect(8, 0, 4, 1));
+      //cv::resize(ex_mask, ex_mask, cv::Size(ex_box.template at<Dtype>(2) -  ex_box.template at<Dtype>(0) + 1,
+                                            //ex_box.template at<Dtype>(3) -  ex_box.template at<Dtype>(1) + 1));
 
-      cv::threshold(ex_mask, ex_mask, parameters_.binarize_thresh(), 1, cv::THRESH_BINARY);
+      //cv::threshold(ex_mask, ex_mask, parameters_.binarize_thresh(), 1, cv::THRESH_BINARY);
 
-      float mask_overlap = proposal_layer::algorithms::maskOverlap(ex_box, gt_box, ex_mask, gt_mask);
-      if (mask_overlap < parameters_.train_fg_seg_thresh()) {
-        top_label.template at<Dtype>(i, 0) = 0;
-      } else {
-        top_label.template at<Dtype>(i, 0) = info.template at<Dtype>(3);
-      }
-    }
-  }
+      //float mask_overlap = proposal_layer::algorithms::maskOverlap(ex_box, gt_box, ex_mask, gt_mask);
+      //if (mask_overlap < parameters_.train_fg_seg_thresh()) {
+        //top_label.template at<Dtype>(i, 0) = 0;
+      //} else {
+        //top_label.template at<Dtype>(i, 0) = info.template at<Dtype>(3);
+      //}
+    //}
+  //}
 
   // Output continuous mask for MNC
-  for (int i = 0; i < num_mask_pred; ++i) {
-    cv::Mat resized = mask_pred.row(i).reshape(1, parameters_.mask_size());
-    resized_mask_pred.push_back(resized);
-  }
+  //for (int i = 0; i < num_mask_pred; ++i) {
+    //cv::Mat resized = mask_pred.row(i).reshape(1, parameters_.mask_size());
+    //resized_mask_pred.push_back(resized);
+  //}
 
-  cv::Mat locations = top_label != 0;
-  cv::findNonZero(locations, locations);
-  std::vector<cv::Mat> channels(2);
-  cv::split(locations, channels);
-  cv::Mat pos_sample;
-  if (channels.size() > 0) {
-    pos_sample = channels.back();
-  }
-  pos_sample.copyTo(pos_sample_);
+  //cv::Mat locations = top_label != 0;
+  //cv::findNonZero(locations, locations);
+  //std::vector<cv::Mat> channels(2);
+  //cv::split(locations, channels);
+  //cv::Mat pos_sample;
+  //if (channels.size() > 0) {
+    //pos_sample = channels.back();
+  //}
+  //pos_sample.copyTo(pos_sample_);
 
-  top[1]->Reshape({top_label.rows, 1});
-  Dtype * top_data = top[1]->mutable_cpu_data();
+  //top[1]->Reshape({top_label.rows, 1});
+  //Dtype * top_data = top[1]->mutable_cpu_data();
 
-  for (int i = 0; i < top_label.total(); ++i) {
-    top_data[i] = top_label.template at<Dtype>(i);
-  }
+  //for (int i = 0; i < top_label.total(); ++i) {
+    //top_data[i] = top_label.template at<Dtype>(i);
+  //}
 
-  auto t3 = std::chrono::steady_clock::now();
-  std::cout << "Time spent: " << float((t2 - t1).count()) / (t3 - t1).count() << std::endl;
+  //auto t3 = std::chrono::steady_clock::now();
+  //std::cout << "Time spent: " << float((t2 - t1).count()) / (t3 - t1).count() << std::endl;
 }
 
 /** \brief Implements the forward propagation function.
@@ -153,15 +153,15 @@ void MaskProposalLayer<Dtype>::ForwardTest_cpu(std::vector<Blob<Dtype>*> const &
                                                std::vector<Blob<Dtype>*> const & top,
                                                cv::Mat & resized_mask_pred)
 {
-  std::cerr << "CURRENTLY IN FORWARD TEST CPU" << std::endl;
-  using namespace proposal_layer;
-  auto mask_pred     = blob::extractMatrix<Dtype>(*bottom[0], { 0, 0 }, bottom[0]->shape());
-  auto num_mask_pred = mask_pred.rows;
-  for (int i = 0; i < num_mask_pred; ++i) {
-    cv::Mat resized = mask_pred.row(i).reshape(1, parameters_.mask_size());
-    resized_mask_pred.push_back(resized);
-  }
-  std::cerr << "DONE" << std::endl;
+  //std::cerr << "CURRENTLY IN FORWARD TEST CPU" << std::endl;
+  //using namespace proposal_layer;
+  //auto mask_pred     = blob::extractMatrix<Dtype>(*bottom[0], { 0, 0 }, bottom[0]->shape());
+  //auto num_mask_pred = mask_pred.rows;
+  //for (int i = 0; i < num_mask_pred; ++i) {
+    //cv::Mat resized = mask_pred.row(i).reshape(1, parameters_.mask_size());
+    //resized_mask_pred.push_back(resized);
+  //}
+  //std::cerr << "DONE" << std::endl;
 }
 
 

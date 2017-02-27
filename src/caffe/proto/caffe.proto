@@ -939,18 +939,19 @@ message ProposalParameter {
 }
 
 message ProposalTargetParameter {
-  optional uint32 num_classes = 1  [default = 2];
-  optional bool bp_all        = 2  [default = true];
-  optional bool mnc_mode      = 3  [default = true];
-  optional uint32 mask_size   = 4  [default = 21];
-  optional bool mix_index     = 5  [default = true];
-  optional uint32 batch_size  = 6  [default = 64];
-  repeated float fg_fraction  = 7  [packed = true];
-  repeated float fg_lo_thresh = 8  [packed = true];
-  repeated float fg_hi_thresh = 9  [packed = true];
-  repeated float bg_fraction  = 10 [packed = true];
-  repeated float bg_lo_thresh = 11 [packed = true];
-  repeated float bg_hi_thresh = 12 [packed = true];
+  optional uint32 num_classes    = 1  [default = 2];
+  optional bool bp_all           = 2  [default = true];
+  optional bool mnc_mode         = 3  [default = true];
+  optional uint32 mask_size      = 4  [default = 21];
+  optional bool mix_index        = 5  [default = true];
+  optional uint32 batch_size     = 6  [default = 64];
+  repeated float fg_fraction     = 7  [packed = true];
+  repeated float fg_lo_thresh    = 8  [packed = true];
+  repeated float fg_hi_thresh    = 9  [packed = true];
+  repeated float bg_fraction     = 10 [packed = true];
+  repeated float bg_lo_thresh    = 11 [packed = true];
+  repeated float bg_hi_thresh    = 12 [packed = true];
+  optional float binarize_thresh = 13 [default = 0.4];
 }
 
 
