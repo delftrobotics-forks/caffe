@@ -225,6 +225,18 @@ namespace blob {
    *  \param [out]  blob     Caffe blob.
    *  \param [in]   matrix   OpenCV matrix.
    */
+  template <typename T>
+  void writeMatrix(Blob<T> & blob, cv::Mat const & matrix) {
+    blob.Reshape({matrix.rows, matrix.cols});
+    T * data = blob.mutable_cpu_data();
+    for (size_t i = 0; i < matrix.total(); ++i) { data[i] = matrix.at<T>(i); }
+  }
+
+
+  /** \brief Writes the information contained in an OpenCV matrix to a blob.
+   *  \param [out]  blob     Caffe blob.
+   *  \param [in]   matrix   OpenCV matrix.
+   */
   template <typename A, typename B>
   void writeMatrix(Blob<A> & blob, cv::Mat_<B> const & matrix) {
     blob.Reshape({matrix.rows, matrix.cols});

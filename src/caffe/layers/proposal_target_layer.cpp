@@ -34,6 +34,20 @@ struct ROISamplingInput {
   float                      binarize_thresh;
 };
 
+struct ROISamplingOutput {
+  std::vector<cv::Mat>       rois;
+  std::vector<cv::Mat>       mask_weight;
+  std::vector<cv::Mat>       pos_masks;
+  cv::Mat                    target_mat;
+  cv::Mat                    in_weights;
+  cv::Mat                    out_weights;
+  std::vector<int>           labels;
+  cv::Mat                    top_mask_info;
+  std::set<size_t>           fg_inds;
+  std::set<size_t>           bg_inds;
+  std::vector<size_t>        keep_inds;
+};
+
 template <typename T>
 std::vector<size_t> thresholdOverlaps(std::vector<T> const & overlaps,
                                       float          const   lo_thresh,
@@ -68,87 +82,77 @@ std::set<size_t> sampleIndices(std::vector<T>              const & overlaps,
 }
 
 template <typename T>
-void sampleRois(std::vector<cv::Mat>             & rois,
-                std::vector<int>                 & labels,
-                cv::Mat_<T>                      & target_mat,
-                cv::Mat_<T>                      & in_weights,
-                cv::Mat_<T>                      & out_weights,
-                cv::Mat                          & top_mask_info,
-                std::vector<cv::Mat>             & mask_weight,
-                std::vector<cv::Mat>             & pos_masks,
-                std::set<size_t>                 & fg_inds,
-                std::set<size_t>                 & bg_inds,
-                std::vector<size_t>              & keep_inds,
-                ROISamplingInput           const & sampling_input)
-{
+void sampleRois(ROISamplingOutput & output, ROISamplingInput const & input) {
   std::vector<int> gt_assignment;
   std::vector<T> max_overlaps;
 
-  cv::Mat all_boxes = sampling_input.all_rois(cv::Rect(1, 0, 4, sampling_input.all_rois.rows));
-  cv::Mat gt_boxes  = sampling_input.gt_rois (cv::Rect(0, 0, 4, sampling_input.gt_rois.rows));
+  cv::Mat all_boxes = input.all_rois(cv::Rect(1, 0, 4, input.all_rois.rows));
+  cv::Mat gt_boxes  = input.gt_rois (cv::Rect(0, 0, 4, input.gt_rois.rows));
   cv::Mat overlaps  = rectangle::intersectionOverUnion<T>(all_boxes, gt_boxes);
 
   algorithms::max<T>(max_overlaps, gt_assignment, overlaps, SearchType::COLUMNWISE);
 
-  fg_inds = sampleIndices(max_overlaps, sampling_input.fg_params, sampling_input.rois_per_image);
-  bg_inds = sampleIndices(max_overlaps, sampling_input.bg_params, sampling_input.rois_per_image - fg_inds.size());
+  output.fg_inds = sampleIndices(max_overlaps, input.fg_params, input.rois_per_image);
+  output.bg_inds = sampleIndices(max_overlaps, input.bg_params, input.rois_per_image - output.fg_inds.size());
 
-  keep_inds.reserve(fg_inds.size() + bg_inds.size());
-  keep_inds.insert(keep_inds.end(), fg_inds.begin(), fg_inds.end());
-  keep_inds.insert(keep_inds.end(), bg_inds.begin(), bg_inds.end());
+  output.keep_inds.reserve(output.fg_inds.size() + output.bg_inds.size());
+  output.keep_inds.insert(output.keep_inds.end(), output.fg_inds.begin(), output.fg_inds.end());
+  output.keep_inds.insert(output.keep_inds.end(), output.bg_inds.begin(), output.bg_inds.end());
 
-  labels = utils::select(utils::select(sampling_input.gt_labels, gt_assignment), keep_inds);
-  std::fill(labels.begin() + fg_inds.size(), labels.end(), 0);
+  output.labels = utils::select(utils::select(input.gt_labels, gt_assignment), output.keep_inds);
+  std::fill(output.labels.begin() + output.fg_inds.size(), output.labels.end(), 0);
 
   std::vector<cv::Mat> gts;
 
-  rois.reserve(keep_inds.size());
-  gts.reserve(keep_inds.size());
+  output.rois.reserve(output.keep_inds.size());
+  gts.reserve(output.keep_inds.size());
 
-  for (auto const & i : keep_inds) { rois.push_back(all_boxes.row(i));              }
-  for (auto const & i : keep_inds) { gts.push_back(gt_boxes.row(gt_assignment[i])); }
+  for (auto const & i : output.keep_inds) { output.rois.push_back(all_boxes.row(i));              }
+  for (auto const & i : output.keep_inds) { gts.push_back(gt_boxes.row(gt_assignment[i])); }
 
   cv::Mat mean        = cv::Mat::zeros(1, 4, cv::DataType<T>::type);
   cv::Mat std         = (cv::Mat_<T>(1, 4) << 0.1, 0.1, 0.2, 0.2);
-  cv::Mat target_data = algorithms::computeTargets<T>(rois, gts, mean, std);
+  cv::Mat target_data = algorithms::computeTargets<T>(output.rois, gts, mean, std);
   cv::Mat weights     = cv::Mat::ones(1, 4, cv::DataType<T>::type);
 
-  algorithms::getRegressionLabels<T>(target_mat, in_weights, target_data, labels, sampling_input.num_classes, weights);
-  cv::threshold(in_weights, out_weights, 0, 1, CV_THRESH_BINARY);
+  algorithms::getRegressionLabels<T>(output.target_mat, output.in_weights, target_data,
+                                     output.labels, input.num_classes, weights);
 
-  if (!sampling_input.mask_info.empty() && !sampling_input.gt_masks.empty()) {
-    cv::Mat scaled_rois(rois.size(), 4, cv::DataType<T>::type);
+  cv::threshold(output.in_weights, output.out_weights, 0, 1, CV_THRESH_BINARY);
 
-    for (size_t i = 0; i < rois.size(); ++i) { 
-      cv::Mat scaled_roi = rois[i] * (1.0 / sampling_input.image_scale);
+  if (!input.mask_info.empty() && !input.gt_masks.empty()) {
+    cv::Mat scaled_rois(output.rois.size(), 4, cv::DataType<T>::type);
+
+    for (size_t i = 0; i < output.rois.size(); ++i) { 
+      cv::Mat scaled_roi = output.rois[i] * (1.0 / input.image_scale);
       scaled_roi.copyTo(scaled_rois.row(i));
     }
 
-    cv::Mat scaled_gt_boxes = gt_boxes * (1.0 / sampling_input.image_scale);
+    cv::Mat scaled_gt_boxes = gt_boxes * (1.0 / input.image_scale);
 
-    pos_masks.reserve(keep_inds.size());
-    mask_weight.reserve(rois.size());
+    output.pos_masks.reserve(output.keep_inds.size());
+    output.mask_weight.reserve(output.rois.size());
 
-    for (size_t i = 0; i < rois.size(); ++i) {
-      if (i < fg_inds.size()) {
-        mask_weight.emplace_back(cv::Mat::ones(sampling_input.mask_size, sampling_input.mask_size, cv::DataType<T>::type));
+    for (size_t i = 0; i < output.rois.size(); ++i) {
+      if (i < output.fg_inds.size()) {
+        output.mask_weight.emplace_back(cv::Mat::ones(input.mask_size, input.mask_size, cv::DataType<T>::type));
       } else {
-        mask_weight.emplace_back(cv::Mat::zeros(sampling_input.mask_size, sampling_input.mask_size, cv::DataType<T>::type));
+        output.mask_weight.emplace_back(cv::Mat::zeros(input.mask_size, input.mask_size, cv::DataType<T>::type));
       }
     }
 
-    top_mask_info = cv::Mat::zeros(keep_inds.size(), 12, cv::DataType<T>::type);
-    top_mask_info(cv::Range(fg_inds.size(), top_mask_info.rows), cv::Range(0, top_mask_info.cols)).setTo(-1);
+    output.top_mask_info = cv::Mat::zeros(output.keep_inds.size(), 12, cv::DataType<T>::type);
+    output.top_mask_info(cv::Range(output.fg_inds.size(), output.top_mask_info.rows), cv::Range(0, output.top_mask_info.cols)).setTo(-1);
 
     std::set<size_t>::iterator it;
-    for (it = fg_inds.begin(); it != fg_inds.end(); ++it) {
-      int i = std::distance(fg_inds.begin(), it);
+    for (it = output.fg_inds.begin(); it != output.fg_inds.end(); ++it) {
+      int i = std::distance(output.fg_inds.begin(), it);
       int j = gt_assignment[*it];
 
-      cv::Size gt_mask_info(sampling_input.mask_info.at<T>(j, 1), sampling_input.mask_info.at<T>(j, 0));
+      cv::Size gt_mask_info(input.mask_info.at<T>(j, 1), input.mask_info.at<T>(j, 0));
 
       cv::Range ranges[3] = {{j, j + 1}, {0, gt_mask_info.height}, {0, gt_mask_info.width}};
-      cv::Mat gt_mask3(sampling_input.gt_masks, ranges);
+      cv::Mat gt_mask3(input.gt_masks, ranges);
       cv::Mat ex_box = scaled_rois.row(i).clone();
       cv::Mat gt_box = scaled_gt_boxes.row(j).clone();
 
@@ -157,25 +161,25 @@ void sampleRois(std::vector<cv::Mat>             & rois,
         gt_box.at<T>(0, k) = std::round(gt_box.at<T>(0, k));
       }
 
-      pos_masks.push_back(algorithms::intersectMask<T>(
-        ex_box, gt_box, gt_mask3, sampling_input.mask_size, sampling_input.binarize_thresh));
+      output.pos_masks.push_back(algorithms::intersectMask<T>(
+        ex_box, gt_box, gt_mask3, input.mask_size, input.binarize_thresh));
 
-      top_mask_info.at<T>(i,  0) = gt_assignment[*it];
-      top_mask_info.at<T>(i,  1) = gt_mask_info.height;
-      top_mask_info.at<T>(i,  2) = gt_mask_info.width;
-      top_mask_info.at<T>(i,  3) = labels[i];
-      top_mask_info.at<T>(i,  4) = ex_box.at<T>(0, 0);
-      top_mask_info.at<T>(i,  5) = ex_box.at<T>(0, 1);
-      top_mask_info.at<T>(i,  6) = ex_box.at<T>(0, 2);
-      top_mask_info.at<T>(i,  7) = ex_box.at<T>(0, 3);
-      top_mask_info.at<T>(i,  8) = gt_box.at<T>(0, 0);
-      top_mask_info.at<T>(i,  9) = gt_box.at<T>(0, 1);
-      top_mask_info.at<T>(i, 10) = gt_box.at<T>(0, 2);
-      top_mask_info.at<T>(i, 11) = gt_box.at<T>(0, 3);
+      output.top_mask_info.at<T>(i,  0) = gt_assignment[*it];
+      output.top_mask_info.at<T>(i,  1) = gt_mask_info.height;
+      output.top_mask_info.at<T>(i,  2) = gt_mask_info.width;
+      output.top_mask_info.at<T>(i,  3) = output.labels[i];
+      output.top_mask_info.at<T>(i,  4) = ex_box.at<T>(0, 0);
+      output.top_mask_info.at<T>(i,  5) = ex_box.at<T>(0, 1);
+      output.top_mask_info.at<T>(i,  6) = ex_box.at<T>(0, 2);
+      output.top_mask_info.at<T>(i,  7) = ex_box.at<T>(0, 3);
+      output.top_mask_info.at<T>(i,  8) = gt_box.at<T>(0, 0);
+      output.top_mask_info.at<T>(i,  9) = gt_box.at<T>(0, 1);
+      output.top_mask_info.at<T>(i, 10) = gt_box.at<T>(0, 2);
+      output.top_mask_info.at<T>(i, 11) = gt_box.at<T>(0, 3);
     }
 
-    while (pos_masks.size() != pos_masks.capacity()) {
-      pos_masks.emplace_back(cv::Mat::zeros(sampling_input.mask_size, sampling_input.mask_size, CV_8U));
+    while (output.pos_masks.size() != output.pos_masks.capacity()) {
+      output.pos_masks.emplace_back(cv::Mat::zeros(input.mask_size, input.mask_size, CV_8U));
     }
   }
 }
@@ -234,72 +238,55 @@ void ProposalTargetLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & b
 {
   using namespace proposal_layer;
 
-  ROISamplingInput sampling_input;
-  sampling_input.all_rois  = blob::extract<Dtype>(*bottom[0], {0, 0}, bottom[0]->shape());
-  sampling_input.gt_rois   = blob::extract<Dtype>(*bottom[1], {0, 0}, bottom[1]->shape());
-  sampling_input.gt_labels = blob::extractVector<int, Dtype>(*bottom[1], {0, 4}, {bottom[1]->shape(0), 5});
+  ROISamplingInput  input;
+  ROISamplingOutput output;
+
+  input.all_rois  = blob::extract<Dtype>(*bottom[0], {0, 0}, bottom[0]->shape());
+  input.gt_rois   = blob::extract<Dtype>(*bottom[1], {0, 0}, bottom[1]->shape());
+  input.gt_labels = blob::extractVector<int, Dtype>(*bottom[1], {0, 4}, {bottom[1]->shape(0), 5});
 
   // Potentially dangerous, will likely modify data from bottom[0]!
-  cv::Mat temp = cv::Mat::zeros(sampling_input.gt_rois.rows, 5, sampling_input.gt_rois.type());
-  sampling_input.gt_rois(cv::Rect(0, 0, 4, sampling_input.gt_rois.rows)).copyTo(temp(cv::Rect(1, 0, 4, sampling_input.gt_rois.rows)));
-  sampling_input.all_rois.push_back(temp);
+  cv::Mat temp = cv::Mat::zeros(input.gt_rois.rows, 5, input.gt_rois.type());
+  input.gt_rois(cv::Rect(0, 0, 4, input.gt_rois.rows)).copyTo(temp(cv::Rect(1, 0, 4, input.gt_rois.rows)));
+  input.all_rois.push_back(temp);
 
   if (params_.mnc_mode()) {
-    sampling_input.gt_masks  = blob::extract<Dtype>(*bottom[3], {0, 0, 0}, bottom[3]->shape());
-    sampling_input.mask_info = blob::extract<Dtype>(*bottom[4], {0, 0},    bottom[4]->shape());
+    input.gt_masks  = blob::extract<Dtype>(*bottom[3], {0, 0, 0}, bottom[3]->shape());
+    input.mask_info = blob::extract<Dtype>(*bottom[4], {0, 0},    bottom[4]->shape());
   }
 
   for (size_t i = 0; i < params_.fg_fraction_size(); ++i) {
-    sampling_input.fg_params.push_back({params_.fg_fraction(i), params_.fg_lo_thresh(i), params_.fg_hi_thresh(i)}); }
+    input.fg_params.push_back({params_.fg_fraction(i), params_.fg_lo_thresh(i), params_.fg_hi_thresh(i)}); }
   for (size_t i = 0; i < params_.bg_fraction_size(); ++i) {
-    sampling_input.bg_params.push_back({params_.bg_fraction(i), params_.bg_lo_thresh(i), params_.bg_hi_thresh(i)}); }
+    input.bg_params.push_back({params_.bg_fraction(i), params_.bg_lo_thresh(i), params_.bg_hi_thresh(i)}); }
 
-  std::vector<cv::Mat> rois;
-  std::vector<cv::Mat> mask_weight;
-  std::vector<cv::Mat> pos_masks;
+  input.rois_per_image = params_.batch_size();
+  input.num_classes = params_.num_classes();
+  input.image_scale = bottom[2]->data_at({0, 2});
+  input.mask_size = params_.mask_size();
+  input.binarize_thresh = params_.binarize_thresh();
 
-  cv::Mat_<Dtype> target_mat;
-  cv::Mat_<Dtype> in_weights;
-  cv::Mat_<Dtype> out_weights;
+  sampleRois<Dtype>(output, input);
+  keep_indices_ = params_.bp_all() ? output.keep_inds : utils::convert<size_t, size_t>(output.fg_inds);
 
-  std::vector<int> labels;
-  cv::Mat top_mask_info;
-  std::set<size_t> fg_inds;
-  std::set<size_t> bg_inds;
-  std::vector<size_t> keep_inds;
-
-  sampling_input.rois_per_image = params_.batch_size();
-  sampling_input.num_classes = params_.num_classes();
-  sampling_input.image_scale = bottom[2]->data_at({0, 2});
-  sampling_input.mask_size = params_.mask_size();
-  sampling_input.binarize_thresh = params_.binarize_thresh();
-
-  sampleRois<Dtype>(rois,        labels,        target_mat,  in_weights,
-                    out_weights, top_mask_info, mask_weight, pos_masks,
-                    fg_inds,     bg_inds,       keep_inds,   sampling_input);
-
-  keep_indices_ = params_.bp_all() ? keep_inds : utils::convert<size_t, size_t>(fg_inds);
-
-  std::chrono::high_resolution_clock::time_point t[11];
-
-  top[0]->Reshape({int(keep_inds.size()), 5});
+  top[0]->Reshape({int(output.keep_inds.size()), 5});
   Dtype * top_data = top[0]->mutable_cpu_data();
-  for (size_t i = 0; i < rois.size(); ++i) {
-    int label = keep_indices_[i] >= sampling_input.all_rois.rows ? 0 : sampling_input.all_rois.at<Dtype>(keep_indices_[i], 0);
+  for (size_t i = 0; i < output.rois.size(); ++i) {
+    int label = keep_indices_[i] >= input.all_rois.rows ? 0 : input.all_rois.at<Dtype>(keep_indices_[i], 0);
     top_data[i * 5]     = label;
-    top_data[i * 5 + 1] = rois[i].at<Dtype>(0, 0);
-    top_data[i * 5 + 2] = rois[i].at<Dtype>(0, 1);
-    top_data[i * 5 + 3] = rois[i].at<Dtype>(0, 2);
-    top_data[i * 5 + 4] = rois[i].at<Dtype>(0, 3);
+    top_data[i * 5 + 1] = output.rois[i].at<Dtype>(0, 0);
+    top_data[i * 5 + 2] = output.rois[i].at<Dtype>(0, 1);
+    top_data[i * 5 + 3] = output.rois[i].at<Dtype>(0, 2);
+    top_data[i * 5 + 4] = output.rois[i].at<Dtype>(0, 3);
   }
 
-  blob::writeVector(*top[1], labels);
-  blob::writeMatrix(*top[2], target_mat);
-  blob::writeMatrix(*top[3], in_weights);
-  blob::writeMatrix(*top[4], out_weights);
+  blob::writeVector(*top[1], output.labels);
+  blob::writeMatrix(*top[2], output.target_mat);
+  blob::writeMatrix(*top[3], output.in_weights);
+  blob::writeMatrix(*top[4], output.out_weights);
 
-  if (!pos_masks.empty()) {
-    top[5]->Reshape({int(pos_masks.size()), 1, pos_masks[0].rows, pos_masks[0].cols});
+  if (!output.pos_masks.empty()) {
+    top[5]->Reshape({int(output.pos_masks.size()), 1, output.pos_masks[0].rows, output.pos_masks[0].cols});
   } else {
     top[5]->Reshape({0, 1, 0, 0});
   }
@@ -307,36 +294,36 @@ void ProposalTargetLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & b
   int offset = 0;
 
   top_data = top[5]->mutable_cpu_data();
-  for (size_t i = 0; i < pos_masks.size(); ++i) {
-    for (size_t j = 0; j < pos_masks[i].total(); ++j) {
-      top_data[offset++] = pos_masks[i].at<uint8_t>(j);
+  for (size_t i = 0; i < output.pos_masks.size(); ++i) {
+    for (size_t j = 0; j < output.pos_masks[i].total(); ++j) {
+      top_data[offset++] = output.pos_masks[i].at<uint8_t>(j);
     }
   }
 
-  if (!mask_weight.empty()) {
-    top[6]->Reshape({int(mask_weight.size()), 1, mask_weight[0].rows, mask_weight[0].cols});
+  if (!output.mask_weight.empty()) {
+    top[6]->Reshape({int(output.mask_weight.size()), 1, output.mask_weight[0].rows, output.mask_weight[0].cols});
   } else {
     top[6]->Reshape({0, 1, 0, 0});
   }
 
   offset = 0;
 
-  top[6]->Reshape({int(mask_weight.size()), 1, mask_weight[0].rows, mask_weight[0].cols});
+  top[6]->Reshape({int(output.mask_weight.size()), 1, output.mask_weight[0].rows, output.mask_weight[0].cols});
   top_data = top[6]->mutable_cpu_data();
-  for (size_t i = 0; i < mask_weight.size(); ++i) {
-    for (size_t j = 0; j < mask_weight[i].total(); ++j) {
-      top_data[offset++] = mask_weight[i].at<Dtype>(j);
+  for (size_t i = 0; i < output.mask_weight.size(); ++i) {
+    for (size_t j = 0; j < output.mask_weight[i].total(); ++j) {
+      top_data[offset++] = output.mask_weight[i].at<Dtype>(j);
     }
   }
 
-  blob::writeMatrix<Dtype, Dtype>(*top[7], top_mask_info);
+  blob::writeMatrix<Dtype, Dtype>(*top[7], output.top_mask_info);
 
   if (params_.mix_index()) {
     std::vector<int> all_rois_index = blob::extractVector<int, Dtype>(*bottom[5], {0, 0}, {1, bottom[5]->shape()[1]});
-    std::set<size_t> lower = utils::compareLower(fg_inds, all_rois_index.size());
+    std::set<size_t> lower = utils::compareLower(output.fg_inds, all_rois_index.size());
 
     blob::writeVector(*top[8], utils::select(all_rois_index, lower));
-    blob::writeVector(*top[9], utils::select(all_rois_index, bg_inds));
+    blob::writeVector(*top[9], utils::select(all_rois_index, output.bg_inds));
   }
 }
 
