@@ -524,6 +524,8 @@ namespace utils {
 
     std::vector<T> ret(count, fill);
     for (size_t i = 0; i < inds.size(); ++i) {
+      assert(inds[i] < ret.size());
+      assert(i < data.size());
       ret[inds[i]] = data[i];
     }
 
