@@ -4,7 +4,6 @@
 #include "caffe/layers/proposal_mask_transforms.hpp"
 #include "caffe/layers/proposal_rectangle_transforms.hpp"
 
-#include <chrono>
 #include <set>
 
 namespace caffe {
@@ -32,7 +31,6 @@ struct ROISamplingInput {
   int                        mask_size;
   float                      binarize_thresh;
   float                      image_scale;
-  std::vector<int>           gt_labels;
   std::vector<ROIParameters> fg_params;
   std::vector<ROIParameters> bg_params;
 };
@@ -51,6 +49,12 @@ struct ROISamplingOutput {
   std::vector<int>           labels;
 };
 
+/** \brief Selects the indices of overlaps within a given range.
+ *  \param  [in]  overlaps    Vector with overlaps.
+ *  \param  [in]  lo_thresh   Low threshold.
+ *  \oaram  [in]  hi_thresh   High threshold.
+ *  \return Vector with indices of thresholded values.
+ */
 template <typename T>
 std::vector<size_t> thresholdOverlaps(std::vector<T> const & overlaps,
                                       float          const   lo_thresh,
@@ -65,6 +69,12 @@ std::vector<size_t> thresholdOverlaps(std::vector<T> const & overlaps,
   return indices;
 }
 
+/** \brief Samples foreground or background indices, based on given thresholds.
+ *  \param  [in]  overlaps   Vector with overlaps.
+ *  \param  [in]  params     Vector with ROI parameters (background/foreground thresholds).
+ *  \param  [in]  num_rois   Number of ROIs per image.
+ *  \return Set with sampled background/foreground indices.
+ */
 template <typename T>
 std::set<size_t> sampleIndices(std::vector<T>              const & overlaps,
                                 std::vector<ROIParameters> const & params,
@@ -74,9 +84,9 @@ std::set<size_t> sampleIndices(std::vector<T>              const & overlaps,
 
   for (auto const & p : params) {
     std::vector<size_t> thresh_indices = thresholdOverlaps(overlaps, p.lo_thresh, p.hi_thresh);
-    //size_t num_current_rois = std::min(thresh_indices.size(), size_t(std::round(num_rois * p.fraction)));
+    size_t num_current_rois = std::min(thresh_indices.size(), size_t(std::round(num_rois * p.fraction)));
 
-    //if (!thresh_indices.empty()) { thresh_indices = sampleWithoutReplacement(thresh_indices, num_current_rois); }
+    if (!thresh_indices.empty()) { thresh_indices = algorithms::sampleWithoutReplacement(thresh_indices, num_current_rois); }
 
     indices.insert(thresh_indices.begin(), thresh_indices.end());
   }
@@ -84,6 +94,14 @@ std::set<size_t> sampleIndices(std::vector<T>              const & overlaps,
   return indices;
 }
 
+/** \brief Creates the top blobs for the forward propagation function.
+ *  \param  [out]  top         Top (output) blobs.
+ *  \param  [in]   bottom      Bottom (input) blobs.
+ *  \param  [in]   indices     Indices of the foreground ROIs.
+ *  \param  [in]   output      Output from the sampleROIs function.
+ *  \param  [in]   input       Input to the sampleROIs function.
+ *  \param  [in]   mix_index   True if anchors used for RPN and later layer should be mixed.
+ */
 template <typename T>
 void processTopBlobs(std::vector<Blob<T>*> const & top,
                      std::vector<Blob<T>*> const & bottom,
@@ -150,27 +168,40 @@ void processTopBlobs(std::vector<Blob<T>*> const & top,
   }
 }
 
-
+/** \brief Generates a random sample of ROIs comprising foreground and background examples.
+ *  \param [out]  output   ROI sampling output.
+ *  \param [in]   input    ROI sampling input.
+ */
 template <typename T>
 void sampleROIs(ROISamplingOutput & output, ROISamplingInput const & input) {
   std::vector<int> gt_assignment;
   std::vector<T> max_overlaps;
 
+  // Get the predicted boxes and the ground truth.
   cv::Mat all_boxes = input.all_rois(cv::Rect(1, 0, 4, input.all_rois.rows));
   cv::Mat gt_boxes  = input.gt_rois (cv::Rect(0, 0, 4, input.gt_rois.rows));
-  cv::Mat overlaps  = rectangle::intersectionOverUnion<T>(all_boxes, gt_boxes);
 
+  // Compute intersection over union and max over that.
+  cv::Mat overlaps  = rectangle::intersectionOverUnion<T>(all_boxes, gt_boxes);
   algorithms::max<T>(max_overlaps, gt_assignment, overlaps, SearchType::COLUMNWISE);
 
+  // Sample foreground/background indices (select boxes with IOU within given limits).
   output.fg_inds = sampleIndices(max_overlaps, input.fg_params, input.rois_per_image);
   output.bg_inds = sampleIndices(max_overlaps, input.bg_params, input.rois_per_image - output.fg_inds.size());
+
+  // Keep the selected indices.
   output.keep_inds.reserve(output.fg_inds.size() + output.bg_inds.size());
   output.keep_inds.insert(output.keep_inds.end(), output.fg_inds.begin(), output.fg_inds.end());
   output.keep_inds.insert(output.keep_inds.end(), output.bg_inds.begin(), output.bg_inds.end());
-  output.labels = utils::select(utils::select(input.gt_labels, gt_assignment), output.keep_inds);
 
+  // Select sampled values from various vectors.
+  output.labels.reserve(output.keep_inds.size());
+  for (auto const & i : output.keep_inds) { output.labels.push_back(gt_boxes.at<T>(gt_assignment[i], 4)); }
+
+  // Clamp labels for the background ROIs to 0.
   std::fill(output.labels.begin() + output.fg_inds.size(), output.labels.end(), 0);
 
+  // Prepare data for computing regression targets.
   std::vector<cv::Mat> gts;
   output.rois.reserve(output.keep_inds.size());
   gts.reserve(output.keep_inds.size());
@@ -180,60 +211,65 @@ void sampleROIs(ROISamplingOutput & output, ROISamplingInput const & input) {
     gts.push_back(gt_boxes.row(gt_assignment[i]));
   }
 
+  // Compute bounding box regression targets (of external ROIs with respect to GT ROIs).
   cv::Mat target_data = algorithms::computeTargets<T>(output.rois, gts, input.sampling_mean,
                                                       input.sampling_std);
+  // Create regression data (targets and loss weights) in the format desired by the network.
   algorithms::getRegressionLabels<T>(output.target_mat, output.in_weights, target_data,
                                      output.labels, input.num_classes, input.regression_weights);
 
+  // Create outside regression weights.
   cv::threshold(output.in_weights, output.out_weights, 0, 1, CV_THRESH_BINARY);
 
+  // If MNC mode is set to true, do the following.
   if (!input.mask_info.empty() && !input.gt_masks.empty()) {
+    // Map to original image space.
     cv::Mat scaled_rois(output.rois.size(), 4, cv::DataType<T>::type);
-
     for (size_t i = 0; i < output.rois.size(); ++i) { 
-      cv::Mat scaled_roi = output.rois[i] * (1.0 / input.image_scale);
-      scaled_roi.copyTo(scaled_rois.row(i));
+      for (int j = 0; j < output.rois[i].cols; ++j) {
+        scaled_rois.at<T>(i, j) = output.rois[i].at<T>(0, j) / input.image_scale;
+      }
     }
-
     cv::Mat scaled_gt_boxes = gt_boxes * (1.0 / input.image_scale);
 
+    // Allocate memory.
     output.pos_masks.reserve(output.keep_inds.size());
     output.mask_weight.reserve(output.rois.size());
 
+    // Only assign box-level foreground as positive mask regression.
     for (size_t i = 0; i < output.rois.size(); ++i) {
-      if (i < output.fg_inds.size()) {
-        output.mask_weight.emplace_back(cv::Mat::ones(input.mask_size, input.mask_size, cv::DataType<T>::type));
-      } else {
-        output.mask_weight.emplace_back(cv::Mat::zeros(input.mask_size, input.mask_size, cv::DataType<T>::type));
-      }
+      output.mask_weight.emplace_back(input.mask_size, input.mask_size, cv::DataType<T>::type,
+                                      i < output.fg_inds.size() ? 1 : 0);
     }
 
-    output.top_mask_info = cv::Mat::zeros(output.keep_inds.size(), 12, cv::DataType<T>::type);
-    output.top_mask_info(cv::Range(output.fg_inds.size(), output.top_mask_info.rows),
-                         cv::Range(0, output.top_mask_info.cols)).setTo(-1);
+    // Set top_mask_info to -1 and fill it with values only for the rows corresponding to fg_inds.
+    output.top_mask_info = cv::Mat(output.keep_inds.size(), 12, cv::DataType<T>::type, -1);
 
     int i = 0;
-
     std::set<size_t>::iterator it;
     for (it = output.fg_inds.begin(); it != output.fg_inds.end(); it++, i++) {
       int j = gt_assignment[*it];
-
       cv::Size gt_mask_info(input.mask_info.at<T>(j, 1), input.mask_info.at<T>(j, 0));
 
+      // Select the appropriate GT mask.
       cv::Range ranges[3] = {{j, j + 1}, {0, gt_mask_info.height}, {0, gt_mask_info.width}};
       cv::Mat gt_mask3(input.gt_masks, ranges);
+
+      // Select the scaled external and ground-truth boxes.
       cv::Mat ex_box = scaled_rois.row(i).clone();
       cv::Mat gt_box = scaled_gt_boxes.row(j).clone();
 
+      // Convert coordinates to integers.
       for (int k = 0; k < 4; ++k) {
         ex_box.at<T>(0, k) = std::round(ex_box.at<T>(0, k));
         gt_box.at<T>(0, k) = std::round(gt_box.at<T>(0, k));
       }
 
+      // Calculate intersection between external and ground-truth boxes and mask it according to gt_mask.
       output.pos_masks.push_back(algorithms::intersectMask<T>(
         ex_box, gt_box, gt_mask3, input.mask_size, input.binarize_thresh));
 
-      output.top_mask_info.at<T>(i,  0) = gt_assignment[*it];
+      output.top_mask_info.at<T>(i,  0) = j;
       output.top_mask_info.at<T>(i,  1) = gt_mask_info.height;
       output.top_mask_info.at<T>(i,  2) = gt_mask_info.width;
       output.top_mask_info.at<T>(i,  3) = output.labels[i];
@@ -247,8 +283,9 @@ void sampleROIs(ROISamplingOutput & output, ROISamplingInput const & input) {
       output.top_mask_info.at<T>(i, 11) = gt_box.at<T>(0, 3);
     }
 
+    // Fill the pos_masks with zeros for the indices corresponding to backgrounds.
     while (output.pos_masks.size() != output.pos_masks.capacity()) {
-      output.pos_masks.emplace_back(cv::Mat::zeros(input.mask_size, input.mask_size, CV_8U));
+      output.pos_masks.emplace_back(input.mask_size, input.mask_size, CV_8U, 0);
     }
   }
 }
@@ -263,6 +300,8 @@ template <typename Dtype>
 void ProposalTargetLayer<Dtype>::LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
                                             std::vector<Blob<Dtype>*> const & top)
 {
+  (void) bottom;
+
   params_  = this->layer_param_.proposal_target_param();
   anchors_ = proposal_layer::anchor::generateBaseAnchors<Dtype>({0.5, 1, 2}, {8, 16, 32}, 16);
 
@@ -295,6 +334,8 @@ template <typename Dtype>
 void ProposalTargetLayer<Dtype>::Reshape(std::vector<Blob<Dtype>*> const & bottom,
                                          std::vector<Blob<Dtype>*> const & top)
 {
+  (void) bottom;
+  (void) top;
 }
 
 /** \brief Implements the forward propagation function.
@@ -310,15 +351,16 @@ void ProposalTargetLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & b
   ROISamplingInput  input;
   ROISamplingOutput output;
 
+  // Extract ROIs (x1, y1, x2, y2) and their labels (column 0 for all_rois and column 4 for gt_rois).
   input.all_rois  = blob::extract<Dtype>(*bottom[0], {0, 0}, bottom[0]->shape());
   input.gt_rois   = blob::extract<Dtype>(*bottom[1], {0, 0}, bottom[1]->shape());
-  input.gt_labels = blob::extractVector<int, Dtype>(*bottom[1], {0, 4}, {bottom[1]->shape(0), 5});
 
   // Potentially dangerous, will likely modify data from bottom[0]!
   cv::Mat temp = cv::Mat::zeros(input.gt_rois.rows, 5, input.gt_rois.type());
   input.gt_rois(cv::Rect(0, 0, 4, input.gt_rois.rows)).copyTo(temp(cv::Rect(1, 0, 4, input.gt_rois.rows)));
   input.all_rois.push_back(temp);
 
+  // Extract ground-truth masks and mask info.
   if (params_.mnc_mode()) {
     input.gt_masks  = blob::extract<Dtype>(*bottom[3], {0, 0, 0}, bottom[3]->shape());
     input.mask_info = blob::extract<Dtype>(*bottom[4], {0, 0},    bottom[4]->shape());
