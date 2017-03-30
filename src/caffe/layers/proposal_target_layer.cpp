@@ -9,6 +9,35 @@
 namespace caffe {
 namespace proposal_layer {
 
+template <typename T>
+void handleError(int index, int iteration, T * top_data, std::vector<int> t) {
+  for (int i = 0; i < int(t.size()); i++) {
+    if (std::fabs(top_data[i] - t[i]) > 1e-3) {
+      std::cout << "iter: " << iteration << " top" << index << ": " << top_data[i] << " " << t[i] << std::endl << std::endl;
+
+      utils::print(t);
+      std::cout << std::endl;
+      for (int j = 0; j < int(t.size()); ++j) { std::cout << top_data[j] << " "; }
+      std::cout << std::endl;
+      exit(0);
+    }
+  }
+}
+
+template <typename T>
+void handleError(int index, int iteration, T * top_data, cv::Mat t) {
+  for (int i = 0; i < t.cols; i++) {
+    if (std::fabs(top_data[i] - t.at<double>(0, i)) > 1e-3) {
+      std::cout << "iter: " << iteration << " top" << index << ": " << top_data[i] << " " << t.at<double>(0, i) << std::endl << std::endl;
+
+      std::cout << t << std::endl << std::endl;
+      for (int j = 0; j < t.cols; ++j) { std::cout << top_data[j] << " "; }
+      std::cout << std::endl;
+      exit(0);
+    }
+  }
+}
+
 struct ROIParameters {
   float fraction;
   float lo_thresh;
@@ -108,8 +137,11 @@ void processTopBlobs(std::vector<Blob<T>*> const & top,
                      std::vector<size_t>   const & indices,
                      ROISamplingOutput     const & output,
                      ROISamplingInput      const & input,
-                     bool                          mix_index)
+                     bool                          mix_index,
+                     int iteration)
 {
+  //cv::FileStorage fs("/home/mmorariu/dump/forward_data_" + std::to_string(iteration) + ".yaml", cv::FileStorage::READ);
+
   top[0]->Reshape({int(output.keep_inds.size()), 5});
   T * top_data = top[0]->mutable_cpu_data();
   for (size_t i = 0; i < output.rois.size(); ++i) {
@@ -121,10 +153,33 @@ void processTopBlobs(std::vector<Blob<T>*> const & top,
     top_data[i * 5 + 4] = output.rois[i].at<T>(0, 3);
   }
 
+  //cv::Mat t0;
+  //fs["top0"] >> t0;
+  //handleError(0, iteration, top[0]->mutable_cpu_data(), t0);
+
   blob::writeVector(*top[1], output.labels);
+
+  //cv::Mat t1;
+  //fs["top1"] >> t1;
+  //handleError(1, iteration, top[1]->mutable_cpu_data(), t1);
+
   blob::writeMatrix(*top[2], output.target_mat);
+
+  //cv::Mat t2;
+  //fs["top2"] >> t2;
+  //handleError(2, iteration, top[2]->mutable_cpu_data(), t2);
+
   blob::writeMatrix(*top[3], output.in_weights);
+
+  //cv::Mat t3;
+  //fs["top3"] >> t3;
+  //handleError(3, iteration, top[3]->mutable_cpu_data(), t3);
+
   blob::writeMatrix(*top[4], output.out_weights);
+
+  //cv::Mat t4;
+  //fs["top4"] >> t4;
+  //handleError(4, iteration, top[4]->mutable_cpu_data(), t4);
 
   if (!output.pos_masks.empty()) {
     top[5]->Reshape({int(output.pos_masks.size()), 1, output.pos_masks[0].rows, output.pos_masks[0].cols});
@@ -140,6 +195,10 @@ void processTopBlobs(std::vector<Blob<T>*> const & top,
       top_data[offset++] = output.pos_masks[i].at<uint8_t>(j);
     }
   }
+
+  //cv::Mat t5;
+  //fs["top5"] >> t5;
+  //handleError(5, iteration, top[5]->mutable_cpu_data(), t5);
 
   if (!output.mask_weight.empty()) {
     top[6]->Reshape({int(output.mask_weight.size()), 1, output.mask_weight[0].rows, output.mask_weight[0].cols});
@@ -157,15 +216,30 @@ void processTopBlobs(std::vector<Blob<T>*> const & top,
     }
   }
 
-  blob::writeMatrix<T, T>(*top[7], output.top_mask_info);
+  //cv::Mat t6;
+  //fs["top6"] >> t6;
+  //handleError(6, iteration, top[6]->mutable_cpu_data(), t6);
+
+  blob::writeMatrix<T, double>(*top[7], output.top_mask_info);
+
+  //cv::Mat t7;
+  //fs["top7"] >> t7;
+  //handleError(7, iteration, top[7]->mutable_cpu_data(), t7);
 
   if (mix_index) {
     std::vector<int> all_rois_index = blob::extractVector<int, T>(*bottom[5], {0, 0}, {1, bottom[5]->shape()[1]});
     std::set<size_t> lower = utils::compareLower(output.fg_inds, all_rois_index.size());
 
-    blob::writeVector(*top[8], utils::select(all_rois_index, lower));
-    blob::writeVector(*top[9], utils::select(all_rois_index, output.bg_inds));
+    auto t1 = utils::select(all_rois_index, lower);
+    blob::writeVector(*top[8], t1);
+    //handleError(8, iteration, top[8]->mutable_cpu_data(), t1);
+
+    auto t2 = utils::select(all_rois_index, output.bg_inds);
+    blob::writeVector(*top[9], t2);
+    //handleError(9, iteration, top[9]->mutable_cpu_data(), t2);
   }
+
+  //fs.close();
 }
 
 /** \brief Generates a random sample of ROIs comprising foreground and background examples.
@@ -348,11 +422,13 @@ void ProposalTargetLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & b
 {
   using namespace proposal_layer;
 
+  iteration_++;
+
   ROISamplingInput  input;
   ROISamplingOutput output;
 
   // Extract ROIs (x1, y1, x2, y2) and their labels (column 0 for all_rois and column 4 for gt_rois).
-  input.all_rois  = blob::extract<Dtype>(*bottom[0], {0, 0}, bottom[0]->shape());
+  input.all_rois  = blob::extract<Dtype>(*bottom[0], {0, 0}, bottom[0]->shape()).clone();
   input.gt_rois   = blob::extract<Dtype>(*bottom[1], {0, 0}, bottom[1]->shape());
 
   // Potentially dangerous, will likely modify data from bottom[0]!
@@ -385,7 +461,7 @@ void ProposalTargetLayer<Dtype>::Forward_cpu(std::vector<Blob<Dtype>*> const & b
 
   sampleROIs<Dtype>(output, input);
   keep_indices_ = params_.bp_all() ? output.keep_inds : utils::convert<size_t, size_t>(output.fg_inds);
-  processTopBlobs(top, bottom, keep_indices_, output, input, params_.mix_index());
+  processTopBlobs(top, bottom, keep_indices_, output, input, params_.mix_index(), iteration_);
 }
 
 /** \brief Implements the backward propagation function.

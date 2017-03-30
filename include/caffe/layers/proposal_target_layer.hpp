@@ -14,7 +14,7 @@ template <typename Dtype>
 class ProposalTargetLayer : public Layer<Dtype> {
 
 public:
-explicit ProposalTargetLayer(LayerParameter const & param): Layer<Dtype>(param) {}
+explicit ProposalTargetLayer(LayerParameter const & param): Layer<Dtype>(param), iteration_(0) {}
 
 virtual void LayerSetUp(std::vector<Blob<Dtype>*> const & bottom,
                         std::vector<Blob<Dtype>*> const & top);
@@ -39,10 +39,9 @@ protected:
   std::vector<cv::Rect_<Dtype>> anchors_;
 
   ProposalTargetParameter params_;
+  int iteration_;
 
   std::vector<size_t> keep_indices_;
-
-  int iteration_ = 0;
 };
 
 }

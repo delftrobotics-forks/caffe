@@ -146,32 +146,6 @@ namespace blob {
    *  \param [in]  end     Vector of end indices.
    *  \return Vector of matrices containing elements from the blob.
    */
-  //template <typename T>
-  //std::vector<cv::Mat> extract(Blob<T>          const & blob,
-                               //std::vector<int> const & start,
-                               //std::vector<int> const & end)
-  //{
-    //CHECK_GE(start.size(), 2);
-    //CHECK(start.size() == end.size() && start.size() == blob.shape().size());
-
-    //cv::Mat data(blob.shape().size(), &blob.shape()[0], cv::DataType<T>::type,
-                 //const_cast<T*>(blob.cpu_data()));
-
-    //std::vector<cv::Range> ranges;
-    //for (size_t i = 0; i < start.size(); ++i) {
-      //CHECK(start[i] >= 0 && end[i] <= blob.shape(i) && start[i] < end[i]);
-      //ranges.emplace_back(start[i], end[i]);
-    //}
-
-    //return cv::Mat(data, &ranges[0]);
-  //}
-
-  /** \brief Extracts a vector of matrices from a Caffe blob.
-   *  \param [in]  blob    Input Caffe blob.
-   *  \param [in]  start   Vector of start indices.
-   *  \param [in]  end     Vector of end indices.
-   *  \return Vector of matrices containing elements from the blob.
-   */
   template <typename A, typename B>
   std::vector<cv::Mat_<A>> extractVectorOfMatrices(Blob<B>          const & blob,
                                                    std::vector<int> const & start,
