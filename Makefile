@@ -364,6 +364,15 @@ ifeq ($(WITH_PYTHON_LAYER), 1)
 	LIBRARIES += $(PYTHON_LIBRARIES)
 endif
 
+# Add options for layer modules
+LAYER_MODULE_PREFIX ?= "lib"
+COMMON_FLAGS += -DLAYER_MODULE_PREFIX="\"$(LAYER_MODULE_PREFIX)\""
+LAYER_MODULE_SUFFIX ?= ".so"
+COMMON_FLAGS += -DLAYER_MODULE_SUFFIX="\"$(LAYER_MODULE_SUFFIX)\""
+DEFAULT_LAYER_PATH ?= $(DISTRIBUTE_DIR)/lib/caffe/layers
+COMMON_FLAGS += -DDEFAULT_LAYER_PATH="\"$(DEFAULT_LAYER_PATH)\""
+LIBRARIES += dl
+
 # BLAS configuration (default = ATLAS)
 BLAS ?= atlas
 ifeq ($(BLAS), mkl)
@@ -408,6 +417,9 @@ LIBRARY_DIRS += $(LIB_BUILD_DIR)
 
 # Automatic dependency generation (nvcc is handled separately)
 CXXFLAGS += -MMD -MP
+
+# Enable c++11
+CXXFLAGS += -std=c++11
 
 # Complete build flags.
 COMMON_FLAGS += $(foreach includedir,$(INCLUDE_DIRS),-I$(includedir))
